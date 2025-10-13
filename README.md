@@ -39,7 +39,9 @@ Run example:
 
 ## Usage
 
-A complete example is given in `docs/examples/complete_example.py`, a minimum example (`docs/examples/minimal_example.py`) is shown below:
+A complete example is given in `docs/examples/complete_example.py`. An example of how to integrate pyFlightPlotter for your log-data structure is shown in [indiflight](https://github.com/tudelft/indiflight/blob/global_rls/support/LogAnalysis/indiflightPlotter.py).
+
+A minimum example (`docs/examples/minimal_example.py`) is shown below:
 
 ```python
 import numpy as np
