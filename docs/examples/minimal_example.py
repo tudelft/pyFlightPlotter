@@ -1,47 +1,3 @@
-# pyFlightPlotter
-Interactive, configurable and three-dimensional flight data plotting, with little boilerplate
-
-Features:
-- [x] 3D plotting including estimation, setpoint and measurements of
-  - attitude
-  - position
-  - velocity
-  - acceleration
-  - rotor force command
-  - control surface deflection
-- [x] Time-series plotting in configurable window
-  - `_plot_timeseries()` method supports different line styles and colours, yet keeps style consistent
-- [x] Syncronized vertical cursor in time-series; even 3D window updates with mouse hover
-- [x] Craft3D class with `addRotor` and `addSurface` methods to vastly simplify building crafts
-  - Single-axis surface tilt supported
-  - Dual-axis rotor tilt supported 
-- [ ] Real-time animation (currently relatively low frame-rate)
-- [ ] automatic playback (instead of mouse hover)
-- [ ] more examples
-
-![Overview of pyFlightPlotter](docs/images/overview.png)
-
-## Installation
-
-Clone the repo
-
-    git clone github.com/tudelft/pyFlightPlotter
-
-Install
-
-    cd pyFlightPlotter
-    pip install .
-
-Run example:
-
-    python3 -i docs/examples/complete_example.py
-
-
-## Usage
-
-A complete example is given in `docs/examples/complete_example.py`, a minimum example (`docs/examples/minimal_example.py`) is shown below:
-
-```python
 import numpy as np
 
 from pyFlightPlotter import FlightPlotterBase, BlittedCursor, Viewport, Quadrotor
@@ -86,5 +42,3 @@ if __name__ == "__main__":
 
     # connect mouse hover
     fp.connect_viewport(vp)
-```
-

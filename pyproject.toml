@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyFlightPlotter"
+version = "0.1.0"
+description = "A utility library for plotting flight data"
+readme = "README.md"
+authors = [{ name = "Till Blaha", email = "t.m.blaha@tudelft.nl" }]
+license = "GPL-3.0-or-later"
+requires-python = ">=3.8"
+
+dependencies = [
+    "numpy>=2.0.0",
+    "scipy>=1.16.0",
+    "matplotlib>=3.7.0",
+]
+
+[project.urls]
+Repository = "https://github.com/tudelft/pyFlightPlotter"
