@@ -15,7 +15,7 @@ Features:
 - [x] Craft3D class with `addRotor` and `addSurface` methods to vastly simplify building crafts
   - Single-axis surface tilt supported
   - Dual-axis rotor tilt supported 
-- [ ] Real-time animation (currently relatively low frame-rate)
+- [x] Real-time animation (although currently relatively low frame-rate, unless only drawing attitude)
 - [ ] automatic playback (instead of mouse hover)
 - [ ] more examples
 
