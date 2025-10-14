@@ -1,6 +1,9 @@
 # pyFlightPlotter
 Interactive, configurable and three-dimensional flight data plotting, with little boilerplate
 
+<!-- ![Overview of pyFlightPlotter](docs/images/overview.png) -->
+![Demo of pyFlightPlotter](docs/images/demo.gif)
+
 Features:
 - [x] 3D plotting including estimation, setpoint and measurements of
   - attitude
@@ -19,8 +22,6 @@ Features:
 - [ ] automatic playback (instead of mouse hover)
 - [ ] more examples
 
-<!-- ![Overview of pyFlightPlotter](docs/images/overview.png) -->
-![Demo of pyFlightPlotter](docs/images/demo.gif)
 
 ## Installation
 
