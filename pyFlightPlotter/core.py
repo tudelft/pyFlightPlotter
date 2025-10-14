@@ -131,7 +131,7 @@ class Craft3D(object):
         self.surfaces = []
 
     def addRotor(self,
-                 xyz=[0, 0, 0], axis=[0, 0, 1], 
+                 xyz=[0, 0, 0], axis=[0, 0, -1], 
                  tilt_xyz=[0, 0, 0], tilt_axis=[1, 0, 0],
                  R=0.1, N=20):
 
@@ -160,7 +160,7 @@ class Craft3D(object):
         })
 
     def addSurface(self,
-                   tilt_xyz=[0, 0, 0], tilt_axis=[0, 0, 1],
+                   tilt_xyz=[0, 0, 0], tilt_axis=[0, 1, 0],
                    geometry=[np.array([0, 0, 0])]):
         tilt_xyz = np.asarray(tilt_xyz, dtype=float)
         tilt_axis = np.asarray(tilt_axis, dtype=float)
@@ -244,11 +244,11 @@ class Craft3D(object):
 
             arrows.append([arrow_start, arrow_end, arrow_max])
 
-        for surface in self.surfaces:
+        for surface, control in zip(self.surfaces, surface_controls):
             geometry = surface["geometry"]
             tilt_xyz = surface["tilt_xyz"]
             tilt_axis = surface["tilt_axis"]
-            tilt_angle = surface_controls[0]
+            tilt_angle = control
             tilt_rotation = R.from_rotvec(tilt_axis*tilt_angle)
 
             for geo in geometry:
