@@ -19,7 +19,8 @@ Features:
 - [ ] automatic playback (instead of mouse hover)
 - [ ] more examples
 
-![Overview of pyFlightPlotter](docs/images/overview.png)
+<!-- ![Overview of pyFlightPlotter](docs/images/overview.png) -->
+![Demo of pyFlightPlotter](docs/images/demo.gif)
 
 ## Installation
 
