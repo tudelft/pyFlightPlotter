@@ -473,8 +473,15 @@ class Viewport(object):
         # plot attitude
         for ser in [x for x in ["att", "attSet", "attMeas"] if x in self.series.keys()]:
             # invoke craft to get the rotated geometry
-            rotor_controls = interpolates["rotorSet"] if "rotorSet" in interpolates.keys() else None
-            surface_controls = interpolates["surfaceSet"] if "surfaceSet" in interpolates.keys() else None
+            if ser in ["att", "attSet"]:
+                rotor_controls = interpolates["rotorSet"] if "rotorSet" in interpolates.keys() else None
+                surface_controls = interpolates["surfaceSet"] if "surfaceSet" in interpolates.keys() else None
+            else:
+                # never draw rotors or surface motion for measured attitude as it 
+                # would suggest that these are also measured
+                rotor_controls = None
+                surface_controls = None
+
             xs, ys, zs, q = self.craft.generate(interpolates[ser],
                                                 rotor_controls=rotor_controls,
                                                 surface_controls=surface_controls,
