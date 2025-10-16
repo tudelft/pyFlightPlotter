@@ -173,6 +173,8 @@ class Craft3D(object):
         })
 
     def generate(self, quat, rotor_controls=None, surface_controls=None):
+        if np.linalg.norm(quat) < 1e-6:
+            quat = np.array([0, 0, 0, 1])
         body_rotation = R.from_quat(quat)
 
         xs, ys, zs = np.array([]), np.array([]), np.array([])
