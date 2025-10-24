@@ -271,7 +271,8 @@ class Viewport(object):
                  pos=None, posSet=None, posMeas=None,
                  vel=None, velSet=None, velMeas=None,
                  acc=None, accSet=None, accMeas=None,
-                 rotorSet=None, surfaceSet=None,
+                 rotor=None, rotorSet=None,
+                 surface=None, surfaceSet=None,
                  follow=False, interpolation="previous", title="Viewport"):
         """Initialize the viewport and open its plot window. Numpy arrays expected.
 
@@ -290,7 +291,9 @@ class Viewport(object):
             acc: Nx3 array of acceleration [ax, ay, az]
             accSet: Nx3 array of acceleration setpoint [ax, ay, az]
             accMeas: Nx3 array of acceleration measurement [ax, ay, az]
+            rotor: NxMx3 array of rotor state for M rotors
             rotorSet: NxMx3 array of rotor controls (thrust, tilt1, tilt2) for M rotors
+            surface: NxK array of surface state for K surfaces
             surfaceSet: NxK array of surface controls for K surfaces
             follow: if True, the camera will follow the vehicle position
             interpolation: interpolation method for data ("previous", "linear")
@@ -347,8 +350,12 @@ class Viewport(object):
 
         # controls
         self.controls = {}
+        if rotor is not None:
+            self.controls["rotor"] = {"raw": rotor, "style": "solid",  "color": COLORS[5], "marker": "s", "width": 3.0, "label": "Rotor States"}
         if rotorSet is not None:
             self.controls["rotorSet"] = {"raw": rotorSet, "style": "solid",  "color": COLORS[6], "marker": "s", "width": 3.0, "label": "Rotor Controls"}
+        if surface is not None:
+            self.controls["surface"] = {"raw": surface, "style": "solid",  "color": COLORS[7], "marker": None, "width": 3.0, "label": None}
         if surfaceSet is not None:
             self.controls["surfaceSet"] = {"raw": surfaceSet, "style": "solid",  "color": COLORS[7], "marker": None, "width": 3.0, "label": None}
 
@@ -410,7 +417,8 @@ class Viewport(object):
                      pos=None, posSet=None, posMeas=None,
                      vel=None, velSet=None, velMeas=None,
                      acc=None, accSet=None, accMeas=None,
-                     rotorSet=None, surfaceSet=None):
+                     rotor=None, rotorSet=None,
+                     surface=None, surfaceSet=None):
         """Push a new frame of data. All data that was not None at initialization must be given here as well
         """
 
@@ -439,8 +447,12 @@ class Viewport(object):
             self.series["accSet"]['raw'] = np.vstack((self.series["accSet"]['raw'], accSet))
         if accMeas is not None:
             self.series["accMeas"]['raw'] = np.vstack((self.series["accMeas"]['raw'], accMeas))
+        if rotor is not None:
+            self.series["rotor"]['raw'] = np.vstack((self.series["rotor"]['raw'], rotor[np.newaxis]))
         if rotorSet is not None:
             self.series["rotorSet"]['raw'] = np.vstack((self.series["rotorSet"]['raw'], rotorSet[np.newaxis]))
+        if surface is not None:
+            self.series["surface"]['raw'] = np.vstack((self.series["surface"]['raw'], surface))
         if surfaceSet is not None:
             self.series["surfaceSet"]['raw'] = np.vstack((self.series["surfaceSet"]['raw'], surfaceSet))
 
@@ -475,9 +487,12 @@ class Viewport(object):
         # plot attitude
         for ser in [x for x in ["att", "attSet", "attMeas"] if x in self.series.keys()]:
             # invoke craft to get the rotated geometry
-            if ser in ["att", "attSet"]:
+            if ser == "attSet":
                 rotor_controls = interpolates["rotorSet"] if "rotorSet" in interpolates.keys() else None
                 surface_controls = interpolates["surfaceSet"] if "surfaceSet" in interpolates.keys() else None
+            elif ser == "att":
+                rotor_controls = interpolates["rotor"] if "rotor" in interpolates.keys() else None
+                surface_controls = interpolates["surface"] if "surface" in interpolates.keys() else None
             else:
                 # never draw rotors or surface motion for measured attitude as it 
                 # would suggest that these are also measured
@@ -523,13 +538,21 @@ class Viewport(object):
                 lw=self.series[ser]['width'])[0]
 
             # add arrows for rotors
-            if ser == "att" and len(q) > 0 and "rotorSet" in self.series.keys():
+            if ser == "attSet" and len(q) > 0 and "rotorSet" in self.series.keys():
                 self.series["rotorSet"]['line'] = self.ax.plot(qs[:, 0], qs[:, 1], qs[:, 2],
                              linestyle=self.series["rotorSet"]['style'],
                              color=self.series["rotorSet"]['color'],
                              marker=self.series["rotorSet"]['marker'],
                              markersize=1,
                              lw=self.series["rotorSet"]['width'])[0]
+
+            if ser == "att" and len(q) > 0 and "rotor" in self.series.keys():
+                self.series["rotor"]['line'] = self.ax.plot(qs[:, 0], qs[:, 1], qs[:, 2],
+                             linestyle=self.series["rotor"]['style'],
+                             color=self.series["rotor"]['color'],
+                             marker=self.series["rotor"]['marker'],
+                             markersize=1,
+                             lw=self.series["rotor"]['width'])[0]
 
         # scatter plot for position
         for ser in [x for x in ["pos", "posSet", "posMeas"] if x in self.series.keys()]:
