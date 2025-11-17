@@ -45,7 +45,7 @@ class FlightPlotterBase(object):
         # e,g, motion_notify_event
         self.fig.canvas.mpl_connect(event_type, callback)
 
-    def _plot_timeseries(self, ax, light=None, solid=None, dashed=None, series_labels=[], style_labels=[None, None, None], title="", ylabel="", ylimits=(None, None)):
+    def _plot_timeseries(self, ax, light=None, solid=None, dashed=None, true_values=None, series_labels=[], style_labels=[None, None, None], title="", ylabel="", ylimits=(None, None)):
         if solid is None or len(solid) == 0:
             raise ValueError("At least one solid series must be provided.")
         if len(series_labels) != len(solid):
@@ -56,9 +56,11 @@ class FlightPlotterBase(object):
             light = [None] * len(solid)
         if dashed is None or len(dashed) == 0:
             dashed = [None] * len(solid)
-        lengths = np.array([len(solid), len(light), len(dashed), len(series_labels)])
+        if true_values is None or len(true_values) == 0:
+            true_values = [None] * len(solid)
+        lengths = np.array([len(solid), len(light), len(dashed), len(true_values), len(series_labels)])
         if not (lengths == lengths[0]).all():
-            raise ValueError("light, solid, dashed and labels must all have the same length if given.")
+            raise ValueError("light, solid, dashed, true_values and labels must all have the same length if given.")
 
         for i, series in enumerate(light):
             if series is not None:
@@ -70,6 +72,10 @@ class FlightPlotterBase(object):
         for i, series in enumerate(dashed):
             if series is not None:
                 ax.plot(self.t, series, color=COLORS[i], lw=1.5, linestyle='--')
+
+        for i, series in enumerate(true_values):
+            if series is not None:
+                ax.hlines(series, self.t[0], self.t[-1], color=COLORS[i], lw=1.0, linestyle=':')
 
         self.all_axes.append(ax)
         ax.set_title(title)
@@ -498,6 +504,9 @@ class Viewport(object):
                 # would suggest that these are also measured
                 rotor_controls = None
                 surface_controls = None
+                if self.follow:
+                    # skip all of this entirely, as it would change the limits
+                    continue
 
             xs, ys, zs, q = self.craft.generate(interpolates[ser],
                                                 rotor_controls=rotor_controls,
@@ -554,52 +563,53 @@ class Viewport(object):
                              markersize=1,
                              lw=self.series["rotor"]['width'])[0]
 
-        # scatter plot for position
-        for ser in [x for x in ["pos", "posSet", "posMeas"] if x in self.series.keys()]:
-            self.series[ser]['line'] = self.ax.scatter(
-                interpolates[ser][0],
-                interpolates[ser][1],
-                interpolates[ser][2],
-                linestyle=self.series[ser]['style'],
-                color=self.series[ser]['color'],
-                lw=self.series[ser]['width'],
-                marker=self.series[ser]['marker'],
-                facecolor='none',
-                s=50*self.series[ser]['width'])
+        if not self.follow:
+            # scatter plot for position
+            for ser in [x for x in ["pos", "posSet", "posMeas"] if x in self.series.keys()]:
+                self.series[ser]['line'] = self.ax.scatter(
+                    interpolates[ser][0],
+                    interpolates[ser][1],
+                    interpolates[ser][2],
+                    linestyle=self.series[ser]['style'],
+                    color=self.series[ser]['color'],
+                    lw=self.series[ser]['width'],
+                    marker=self.series[ser]['marker'],
+                    facecolor='none',
+                    s=50*self.series[ser]['width'])
 
-        # line to show velocity
-        for ser in [x for x in ["vel", "velSet", "velMeas"] if x in self.series.keys()]:
-            if ser == "velMeas" and "posMeas" in interpolates.keys():
-                offset = interpolates["posMeas"]
-            elif "pos" in interpolates.keys():
-                offset = interpolates["pos"]
-            else:
-                offset = np.array([0, 0, 0])
+            # line to show velocity
+            for ser in [x for x in ["vel", "velSet", "velMeas"] if x in self.series.keys()]:
+                if ser == "velMeas" and "posMeas" in interpolates.keys():
+                    offset = interpolates["posMeas"]
+                elif "pos" in interpolates.keys():
+                    offset = interpolates["pos"]
+                else:
+                    offset = np.array([0, 0, 0])
 
-            self.series[ser]['line'] = self.ax.plot(
-                [offset[0], 0.2*interpolates[ser][0] + offset[0]],
-                [offset[1], 0.2*interpolates[ser][1] + offset[1]],
-                [offset[2], 0.2*interpolates[ser][2] + offset[2]],
-                linestyle=self.series[ser]['style'],
-                color=self.series[ser]['color'],
-                lw=self.series[ser]['width'])[0]
+                self.series[ser]['line'] = self.ax.plot(
+                    [offset[0], 0.2*interpolates[ser][0] + offset[0]],
+                    [offset[1], 0.2*interpolates[ser][1] + offset[1]],
+                    [offset[2], 0.2*interpolates[ser][2] + offset[2]],
+                    linestyle=self.series[ser]['style'],
+                    color=self.series[ser]['color'],
+                    lw=self.series[ser]['width'])[0]
 
-        # line to show acceleration
-        for ser in [x for x in ["acc", "accSet", "accMeas"] if x in self.series.keys()]:
-            if ser == "accMeas" and "posMeas" in interpolates.keys():
-                offset = interpolates["posMeas"]
-            elif "pos" in interpolates.keys():
-                offset = interpolates["pos"]
-            else:
-                offset = np.array([0, 0, 0])
+            # line to show acceleration
+            for ser in [x for x in ["acc", "accSet", "accMeas"] if x in self.series.keys()]:
+                if ser == "accMeas" and "posMeas" in interpolates.keys():
+                    offset = interpolates["posMeas"]
+                elif "pos" in interpolates.keys():
+                    offset = interpolates["pos"]
+                else:
+                    offset = np.array([0, 0, 0])
 
-            self.series[ser]['line'] = self.ax.plot(
-                [offset[0], 0.1*interpolates[ser][0] + offset[0]],
-                [offset[1], 0.1*interpolates[ser][1] + offset[1]],
-                [offset[2], 0.1*interpolates[ser][2] + offset[2]],
-                linestyle=self.series[ser]['style'],
-                color=self.series[ser]['color'],
-                lw=self.series[ser]['width'])[0]
+                self.series[ser]['line'] = self.ax.plot(
+                    [offset[0], 0.1*interpolates[ser][0] + offset[0]],
+                    [offset[1], 0.1*interpolates[ser][1] + offset[1]],
+                    [offset[2], 0.1*interpolates[ser][2] + offset[2]],
+                    linestyle=self.series[ser]['style'],
+                    color=self.series[ser]['color'],
+                    lw=self.series[ser]['width'])[0]
 
         # make sure all the axes are equal
         if self.follow:
