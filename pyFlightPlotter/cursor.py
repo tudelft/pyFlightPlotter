@@ -1,4 +1,8 @@
 
+from matplotlib.backend_bases import MouseEvent
+import matplotlib.pyplot as plt
+from time import sleep
+
 class BlittedCursor(object):
     def __init__(self, axes, sharex=True):
         self.axes = axes
@@ -6,6 +10,8 @@ class BlittedCursor(object):
         self.cursors = []
 
         ax0 = self.axes[0]
+        self.playing = False
+        self.x = 0
 
         for i, ax in enumerate(self.axes):
             if i > 0 and sharex:
@@ -33,6 +39,10 @@ class BlittedCursor(object):
             # connect the canvas to the draw and motion events
             canvas.mpl_connect('draw_event', self._on_draw)
             canvas.mpl_connect('motion_notify_event', self._on_mouse_move)
+            canvas.mpl_connect('key_press_event', self._on_key_press)
+
+        self.timer = self.axes[0].figure.canvas.new_timer(interval=50)
+        self.timer.add_callback(self._on_timer)
 
     def _on_draw(self, event):
         self.backgrounds.clear()
@@ -42,7 +52,10 @@ class BlittedCursor(object):
 
     def _on_mouse_move(self, event):
         if event.xdata is None or not self.backgrounds:
+            print("Ignoring mouse move event")
             return
+
+        self.x = event.xdata
 
         for ax, line, bg in zip(self.axes, self.cursors, self.backgrounds):
             canvas = ax.figure.canvas
@@ -52,3 +65,47 @@ class BlittedCursor(object):
                 line.set_visible(True)
                 ax.draw_artist(line)
             canvas.blit(ax.bbox)
+
+    def _on_timer(self):
+
+        # generate mouse event to canvas, so that all children get updated
+        from matplotlib.backend_bases import MouseEvent
+
+        self.x += 0.02
+        print(f"Timer event at x={self.x}")
+        canvas = self.axes[0].figure.canvas
+        event = MouseEvent(
+            name="motion_notify_event",
+            canvas=canvas,
+            x=self.x,      # pixel coordinates
+            y=0,
+            button=None,
+            key=None,
+            step=0,
+            dblclick=False,
+            guiEvent=None
+        )
+        event.xdata = self.x  # data coordinates
+        canvas.callbacks.process(
+            "motion_notify_event", event
+        )
+
+
+    def _on_key_press(self, event):
+        """Callback function to update the viewport on key press
+
+        Args:
+            event (matplotlib.backend_bases.KeyEvent): key event
+
+        Returns:
+            None
+        """
+        if event.key == ' ':
+            if self.playing:
+                self.playing = False
+                self.timer.stop()
+                print("stopping timer")
+            else:
+                self.playing = True
+                self.timer.start()
+                print("starting timer")
