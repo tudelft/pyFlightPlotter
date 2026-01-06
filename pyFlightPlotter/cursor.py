@@ -52,7 +52,6 @@ class BlittedCursor(object):
 
     def _on_mouse_move(self, event):
         if event.xdata is None or not self.backgrounds:
-            print("Ignoring mouse move event")
             return
 
         self.x = event.xdata
@@ -72,7 +71,6 @@ class BlittedCursor(object):
         from matplotlib.backend_bases import MouseEvent
 
         self.x += 0.02
-        print(f"Timer event at x={self.x}")
         canvas = self.axes[0].figure.canvas
         event = MouseEvent(
             name="motion_notify_event",
@@ -104,8 +102,6 @@ class BlittedCursor(object):
             if self.playing:
                 self.playing = False
                 self.timer.stop()
-                print("stopping timer")
             else:
                 self.playing = True
                 self.timer.start()
-                print("starting timer")
