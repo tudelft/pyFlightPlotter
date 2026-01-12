@@ -45,6 +45,13 @@ class FlightPlotterBase(object):
         # e,g, motion_notify_event
         self.fig.canvas.mpl_connect(event_type, callback)
 
+    def _find_axis(self, subplot_spec):
+        axes = [ax for ax in self.fig.axes
+                if ax.get_subplotspec() == subplot_spec]
+        if len(axes) == 0:
+            return None
+        return axes[0]
+
     def _plot_timeseries(self, ax, light=None, solid=None, dashed=None, true_values=None, series_labels=[], style_labels=[None, None, None], title="", ylabel="", ylimits=(None, None)):
         if solid is None or len(solid) == 0:
             raise ValueError("At least one solid series must be provided.")
