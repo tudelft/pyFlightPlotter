@@ -1,10 +1,13 @@
 import numpy as np
+import os
+import importlib
 from scipy.interpolate import interp1d
 from scipy.spatial.transform import Rotation as R
 
 from matplotlib import pyplot as plt
 from matplotlib.gridspec import GridSpec
 from matplotlib.lines import Line2D
+from matplotlib.widgets import Button, Slider, TextBox
 
 COLORS = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
@@ -74,7 +77,8 @@ class FlightPlotterBase(object):
                 ax.plot(self.t, series, color=COLORS[i], alpha=0.3, lw=1.0, linestyle='-')
 
         for i, series in enumerate(solid):
-            ax.plot(self.t, series, label=series_labels[i], color=COLORS[i], alpha=0.8, lw=1.0, linestyle='-')
+            if series is not None:
+                ax.plot(self.t, series, label=series_labels[i], color=COLORS[i], alpha=0.8, lw=1.0, linestyle='-')
 
         for i, series in enumerate(dashed):
             if series is not None:
@@ -638,3 +642,297 @@ class Viewport(object):
         """
         if event.xdata is not None:
             self.showAtTime(event.xdata)
+
+
+class VideoViewport(object):
+    """MP4 viewport synchronized to the FlightPlotter timeline.
+
+    The mapping from data time to video time is:
+        video_time = data_time + time_offset
+    """
+
+    def __init__(self, time, title="Video Viewport", mp4_path=None, offset_s=0.0):
+        self.t = np.asarray(time, dtype=float)
+        if self.t.ndim != 1:
+            raise ValueError("time must be a 1D array")
+
+        self.name = title
+        self.time_offset_s = float(offset_s)
+        self.current_data_time = float(self.t[0]) if len(self.t) > 0 else 0.0
+
+        self._video_path = None
+        self._video_filename = "<no video loaded>"
+        self._video_capture = None
+        self._fps = None
+        self._frame_count = None
+        self._duration_s = None
+        self._backend = None
+
+        self.fig = plt.figure(figsize=(10, 7))
+        self.gs = GridSpec(nrows=10, ncols=12, figure=self.fig)
+
+        self.ax_video = self.fig.add_subplot(self.gs[0:8, :])
+        self.ax_video.set_axis_off()
+        self._imshow = None
+
+        self._overlay = self.ax_video.text(
+            0.01,
+            0.99,
+            "",
+            transform=self.ax_video.transAxes,
+            va='top',
+            ha='left',
+            color='white',
+            fontsize=10,
+            bbox=dict(facecolor='black', alpha=0.6, edgecolor='none', boxstyle='round,pad=0.25')
+        )
+
+        self.ax_open = self.fig.add_subplot(self.gs[8, 0:2])
+        self.ax_load = self.fig.add_subplot(self.gs[8, 2:4])
+        self.ax_path = self.fig.add_subplot(self.gs[8, 4:12])
+        self.ax_offset_slider = self.fig.add_subplot(self.gs[9, 0:10])
+        self.ax_offset_box = self.fig.add_subplot(self.gs[9, 10:12])
+
+        self.btn_open = Button(self.ax_open, "Open MP4")
+        self.btn_load = Button(self.ax_load, "Load")
+        self.path_box = TextBox(self.ax_path, "Path", initial="")
+
+        self.offset_slider = Slider(
+            self.ax_offset_slider,
+            "Offset [s]",
+            valmin=-30.0,
+            valmax=30.0,
+            valinit=self.time_offset_s,
+            valstep=0.01,
+        )
+        self.offset_box = TextBox(self.ax_offset_box, "", initial=f"{self.time_offset_s:.3f}")
+
+        self.btn_open.on_clicked(self._on_open_clicked)
+        self.btn_load.on_clicked(self._on_load_clicked)
+        self.offset_slider.on_changed(self._on_offset_slider_changed)
+        self.offset_box.on_submit(self._on_offset_box_submit)
+        self.path_box.on_submit(self._on_path_submit)
+        self.fig.canvas.mpl_connect('key_press_event', self._on_key_press)
+
+        self.ax_video.set_title(self.name)
+        self._set_placeholder("No video loaded")
+        self.fig.show()
+
+        if mp4_path is not None:
+            self.path_box.set_val(str(mp4_path))
+            self.load(mp4_path)
+
+    def _set_placeholder(self, text):
+        h, w = 360, 640
+        placeholder = np.zeros((h, w, 3), dtype=np.uint8)
+        if self._imshow is None:
+            self._imshow = self.ax_video.imshow(placeholder)
+        else:
+            self._imshow.set_data(placeholder)
+        self._update_overlay(frame_id=None, video_time=None, data_time=self.current_data_time, message=text)
+        self.fig.canvas.draw_idle()
+
+    def _try_open_dialog(self):
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes('-topmost', True)
+            selected = filedialog.askopenfilename(
+                title="Select MP4 file",
+                filetypes=[("MP4 files", "*.mp4"), ("All files", "*.*")],
+            )
+            root.destroy()
+            return selected
+        except Exception:
+            return None
+
+    def _on_open_clicked(self, _event):
+        selected = self._try_open_dialog()
+        if selected:
+            self.path_box.set_val(selected)
+            self.load(selected)
+
+    def _on_load_clicked(self, _event):
+        path = self.path_box.text.strip()
+        if path:
+            self.load(path)
+
+    def _on_path_submit(self, text):
+        path = text.strip()
+        if path:
+            self.load(path)
+
+    def _on_offset_slider_changed(self, value):
+        self.time_offset_s = float(value)
+        self.offset_box.set_val(f"{self.time_offset_s:.3f}")
+        self.showAtDataTime(self.current_data_time)
+
+    def _on_offset_box_submit(self, text):
+        try:
+            offset = float(text)
+        except ValueError:
+            self.offset_box.set_val(f"{self.time_offset_s:.3f}")
+            return
+
+        self.time_offset_s = offset
+        slider_min = float(self.offset_slider.valmin)
+        slider_max = float(self.offset_slider.valmax)
+        if offset < slider_min or offset > slider_max:
+            span = max(1.0, abs(offset) + 1.0)
+            self.offset_slider.valmin = -span
+            self.offset_slider.valmax = span
+            self.offset_slider.ax.set_xlim(self.offset_slider.valmin, self.offset_slider.valmax)
+        self.offset_slider.set_val(self.time_offset_s)
+
+    def _frame_time_step(self):
+        # Use video frame period if available; otherwise fall back to a sensible default.
+        fps = self._fps if self._fps is not None and self._fps > 0 else 30.0
+        return 1.0 / fps
+
+    def _set_offset(self, offset):
+        self.time_offset_s = float(offset)
+        slider_min = float(self.offset_slider.valmin)
+        slider_max = float(self.offset_slider.valmax)
+        if self.time_offset_s < slider_min or self.time_offset_s > slider_max:
+            span = max(1.0, abs(self.time_offset_s) + 1.0)
+            self.offset_slider.valmin = -span
+            self.offset_slider.valmax = span
+            self.offset_slider.ax.set_xlim(self.offset_slider.valmin, self.offset_slider.valmax)
+        self.offset_slider.set_val(self.time_offset_s)
+
+    def _on_key_press(self, event):
+        if event.key not in ("left", "right"):
+            return
+
+        step = self._frame_time_step()
+        if event.key == "left":
+            self._set_offset(self.time_offset_s - step)
+        elif event.key == "right":
+            self._set_offset(self.time_offset_s + step)
+
+    def _ensure_backend(self):
+        if self._backend is not None:
+            return
+
+        try:
+            cv2 = importlib.import_module('cv2')
+            self._backend = 'cv2'
+            self._cv2 = cv2
+        except ImportError:
+            raise ImportError("OpenCV (cv2) is required for VideoViewport. Install python package 'opencv-python'.")
+
+    def load(self, path):
+        self._ensure_backend()
+
+        if self._video_capture is not None:
+            self._video_capture.release()
+            self._video_capture = None
+
+        resolved = os.path.abspath(os.path.expanduser(path))
+        if not os.path.isfile(resolved):
+            self._set_placeholder(f"File not found: {resolved}")
+            return False
+
+        if not resolved.lower().endswith('.mp4'):
+            self._set_placeholder("Selected file is not an MP4")
+            return False
+
+        cap = self._cv2.VideoCapture(resolved)
+        if not cap.isOpened():
+            self._set_placeholder(f"Could not open video: {resolved}")
+            cap.release()
+            return False
+
+        fps = float(cap.get(self._cv2.CAP_PROP_FPS))
+        if not np.isfinite(fps) or fps <= 0:
+            fps = 30.0
+
+        frame_count = int(cap.get(self._cv2.CAP_PROP_FRAME_COUNT))
+        if frame_count <= 0:
+            frame_count = None
+
+        self._video_capture = cap
+        self._video_path = resolved
+        self._video_filename = os.path.basename(resolved)
+        self._fps = fps
+        self._frame_count = frame_count
+        self._duration_s = (frame_count / fps) if frame_count is not None else None
+
+        if self._duration_s is not None:
+            self.offset_slider.valmin = -self._duration_s
+            self.offset_slider.ax.set_xlim(self.offset_slider.valmin, self.offset_slider.valmax)
+            if self.time_offset_s < self.offset_slider.valmin:
+                self.time_offset_s = self.offset_slider.valmin
+                self.offset_box.set_val(f"{self.time_offset_s:.3f}")
+            self.offset_slider.set_val(self.time_offset_s)
+
+        self.showAtDataTime(self.current_data_time)
+        return True
+
+    def _read_frame(self, frame_id):
+        if self._video_capture is None:
+            return None
+
+        if self._frame_count is not None:
+            frame_id = int(np.clip(frame_id, 0, self._frame_count - 1))
+        else:
+            frame_id = max(0, int(frame_id))
+
+        self._video_capture.set(self._cv2.CAP_PROP_POS_FRAMES, frame_id)
+        ok, frame = self._video_capture.read()
+        if not ok or frame is None:
+            return None
+
+        frame_rgb = self._cv2.cvtColor(frame, self._cv2.COLOR_BGR2RGB)
+        return frame_rgb
+
+    def _update_overlay(self, frame_id, video_time, data_time, message=None):
+        lines = [
+            f"file: {self._video_filename}",
+            f"frame: {frame_id if frame_id is not None else '-'}",
+            f"video time: {video_time:.3f} s" if video_time is not None else "video time: -",
+            f"data time: {data_time:.3f} s",
+            f"offset: {self.time_offset_s:+.3f} s",
+        ]
+        if message:
+            lines.append(message)
+        self._overlay.set_text("\n".join(lines))
+
+    def showAtDataTime(self, data_time):
+        self.current_data_time = float(data_time)
+
+        if self._video_capture is None:
+            self._update_overlay(frame_id=None, video_time=None, data_time=self.current_data_time, message="No video loaded")
+            self.fig.canvas.draw_idle()
+            return
+
+        video_time = self.current_data_time + self.time_offset_s
+        video_time = max(0.0, video_time)
+        if self._duration_s is not None:
+            video_time = min(video_time, max(0.0, self._duration_s - 1.0 / self._fps))
+
+        frame_id = int(round(video_time * self._fps))
+        if self._frame_count is not None:
+            frame_id = int(np.clip(frame_id, 0, self._frame_count - 1))
+
+        frame = self._read_frame(frame_id)
+        if frame is None:
+            self._update_overlay(frame_id=frame_id, video_time=video_time, data_time=self.current_data_time, message="Failed to decode frame")
+            self.fig.canvas.draw_idle()
+            return
+
+        if self._imshow is None:
+            self._imshow = self.ax_video.imshow(frame)
+        else:
+            self._imshow.set_data(frame)
+
+        self._update_overlay(frame_id=frame_id, video_time=video_time, data_time=self.current_data_time)
+        self.fig.canvas.draw_idle()
+
+    def mouseHoverCallback(self, event):
+        """Update video on hover over a linked FlightPlotter timeline."""
+        if event.xdata is not None:
+            self.showAtDataTime(event.xdata)
