@@ -667,6 +667,9 @@ class VideoViewport(object):
         self._frame_count = None
         self._duration_s = None
         self._backend = None
+        self._last_frame_id = None
+        self._last_frame_rgb = None
+        self._last_rendered_frame_id = None
 
         self.fig = plt.figure(figsize=(10, 7))
         self.gs = GridSpec(nrows=10, ncols=12, figure=self.fig)
@@ -703,7 +706,7 @@ class VideoViewport(object):
             valmin=-30.0,
             valmax=30.0,
             valinit=self.time_offset_s,
-            valstep=0.01,
+            valstep=None,
         )
         self.offset_box = TextBox(self.ax_offset_box, "", initial=f"{self.time_offset_s:.3f}")
 
@@ -860,6 +863,9 @@ class VideoViewport(object):
         self._fps = fps
         self._frame_count = frame_count
         self._duration_s = (frame_count / fps) if frame_count is not None else None
+        self._last_frame_id = None
+        self._last_frame_rgb = None
+        self._last_rendered_frame_id = None
 
         if self._duration_s is not None:
             self.offset_slider.valmin = -self._duration_s
@@ -881,12 +887,20 @@ class VideoViewport(object):
         else:
             frame_id = max(0, int(frame_id))
 
-        self._video_capture.set(self._cv2.CAP_PROP_POS_FRAMES, frame_id)
+        # Reuse the last decoded frame and avoid expensive seeking when stepping forward.
+        if self._last_frame_id == frame_id and self._last_frame_rgb is not None:
+            return self._last_frame_rgb
+
+        if self._last_frame_id is None or frame_id != (self._last_frame_id + 1):
+            self._video_capture.set(self._cv2.CAP_PROP_POS_FRAMES, frame_id)
+
         ok, frame = self._video_capture.read()
         if not ok or frame is None:
             return None
 
         frame_rgb = self._cv2.cvtColor(frame, self._cv2.COLOR_BGR2RGB)
+        self._last_frame_id = frame_id
+        self._last_frame_rgb = frame_rgb
         return frame_rgb
 
     def _update_overlay(self, frame_id, video_time, data_time, message=None):
@@ -918,6 +932,11 @@ class VideoViewport(object):
         if self._frame_count is not None:
             frame_id = int(np.clip(frame_id, 0, self._frame_count - 1))
 
+        if self._last_rendered_frame_id == frame_id and self._imshow is not None:
+            self._update_overlay(frame_id=frame_id, video_time=video_time, data_time=self.current_data_time)
+            self.fig.canvas.draw_idle()
+            return
+
         frame = self._read_frame(frame_id)
         if frame is None:
             self._update_overlay(frame_id=frame_id, video_time=video_time, data_time=self.current_data_time, message="Failed to decode frame")
@@ -929,6 +948,7 @@ class VideoViewport(object):
         else:
             self._imshow.set_data(frame)
 
+        self._last_rendered_frame_id = frame_id
         self._update_overlay(frame_id=frame_id, video_time=video_time, data_time=self.current_data_time)
         self.fig.canvas.draw_idle()
 
