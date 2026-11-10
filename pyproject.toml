@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyFlightPlotter"
-version = "0.3.0"
+version = "0.3.1"
 description = "Interactive, synchronized 2D time-series and 3D attitude/position plotting for flight logs"
 readme = "README.md"
 authors = [{ name = "Till Blaha", email = "t.m.blaha@tudelft.nl" }]
