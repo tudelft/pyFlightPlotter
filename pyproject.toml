@@ -1,15 +1,26 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyFlightPlotter"
-version = "0.2.0"
-description = "A utility library for plotting flight data"
+version = "0.3.0"
+description = "Interactive, synchronized 2D time-series and 3D attitude/position plotting for flight logs"
 readme = "README.md"
 authors = [{ name = "Till Blaha", email = "t.m.blaha@tudelft.nl" }]
 license = "GPL-3.0-or-later"
 requires-python = ">=3.10"
+keywords = ["flight data", "log analysis", "drone", "UAV", "quaternion", "matplotlib", "visualization"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Framework :: Matplotlib",
+]
 
 # Keep lower bounds loose: tight pins cause resolver conflicts with whatever
 # else users have installed (scipy>=1.16 alone would force Python >= 3.11).
@@ -23,4 +34,9 @@ dependencies = [
 video = ["opencv-python"]  # VideoViewport
 
 [project.urls]
+Homepage = "https://github.com/tudelft/pyFlightPlotter"
 Repository = "https://github.com/tudelft/pyFlightPlotter"
+Issues = "https://github.com/tudelft/pyFlightPlotter/issues"
+
+[tool.setuptools]
+packages = ["pyFlightPlotter"]
