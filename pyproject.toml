@@ -4,18 +4,23 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyFlightPlotter"
-version = "0.1.0"
+version = "0.2.0"
 description = "A utility library for plotting flight data"
 readme = "README.md"
 authors = [{ name = "Till Blaha", email = "t.m.blaha@tudelft.nl" }]
 license = "GPL-3.0-or-later"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 
+# Keep lower bounds loose: tight pins cause resolver conflicts with whatever
+# else users have installed (scipy>=1.16 alone would force Python >= 3.11).
 dependencies = [
-    "numpy>=2.0.0",
-    "scipy>=1.16.0",
-    "matplotlib>=3.7.0",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "matplotlib>=3.7",
 ]
+
+[project.optional-dependencies]
+video = ["opencv-python"]  # VideoViewport
 
 [project.urls]
 Repository = "https://github.com/tudelft/pyFlightPlotter"

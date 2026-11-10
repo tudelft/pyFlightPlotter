@@ -25,14 +25,17 @@ Features:
 
 ## Installation
 
-Clone the repo
+    pip install "pyFlightPlotter @ git+https://github.com/tudelft/pyFlightPlotter"
 
-    git clone github.com/tudelft/pyFlightPlotter
+or, for video support (`VideoViewport`, needs OpenCV):
 
-Install
+    pip install "pyFlightPlotter[video] @ git+https://github.com/tudelft/pyFlightPlotter"
 
+For development, clone the repo and install it editable:
+
+    git clone https://github.com/tudelft/pyFlightPlotter
     cd pyFlightPlotter
-    pip install .
+    pip install -e .
 
 Run example:
 
