@@ -27,13 +27,16 @@ export const LINE_STYLE = {
     dashed: (c) => ({ stroke: c, width: 1.5, dash: [6, 4] }),
 };
 
+// at most 9 characters ("-1.23e-45"), the fixed width of .fp-v in style.css
 export function fmt(v) {
     if (v == null || !Number.isFinite(v)) {
         return "–";
     }
     const a = Math.abs(v);
     if (a !== 0 && (a < 1e-3 || a >= 1e5)) {
-        return v.toExponential(2);
+        // three-digit exponents only occur in float64 extremes; drop digits to stay in width
+        const s = v.toExponential(2);
+        return s.length > 9 ? v.toExponential(0) : s;
     }
     if (a >= 100) {
         return v.toFixed(1);
@@ -374,12 +377,19 @@ export class PlotGrid {
     }
 
     _onSelect(P, u) {
-        if (this.hovered !== P || u.select.width < 3) {
+        if (u.select.width < 3) {
+            return;
+        }
+        // cursor sync mirrors the drag box into every panel and fires this hook in each of them
+        // on mouseup; only the dragged panel zooms, but all of them have to clear their box
+        const hide = () => u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
+        if (this.hovered !== P) {
+            hide();
             return;
         }
         const a = u.posToVal(u.select.left, "x");
         const b = u.posToVal(u.select.left + u.select.width, "x");
-        u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
+        hide();
         this.setRange(a, b);
     }
 

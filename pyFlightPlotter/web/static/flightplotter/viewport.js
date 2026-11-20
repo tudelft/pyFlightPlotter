@@ -24,6 +24,8 @@ import { resolveRef } from "./layout.js";
 
 const DEG = Math.PI / 180;
 const TRAIL_S = 2.0;
+// line width [px] of the dashed setpoint / measurement ghosts and vectors
+const DASHED_WIDTH = 1;
 
 export class Viewport {
     /**
@@ -122,8 +124,8 @@ export class Viewport {
         const [C0, C1, C2, C3, C4, C5, C6] = COLORS;
         this.ghosts = {
             est: this.d.att && this._craft({ color: C0, width: 2.5, rotorColor: C5 }),
-            set: this.d.attSet && this._craft({ color: C1, width: 1.5, dashed: true, rotorColor: C6 }),
-            meas: this.d.attMeas && this._craft({ color: C2, width: 1.5, dashed: true, rotors: false }),
+            set: this.d.attSet && this._craft({ color: C1, width: DASHED_WIDTH, dashed: true, rotorColor: C6 }),
+            meas: this.d.attMeas && this._craft({ color: C2, width: DASHED_WIDTH, dashed: true, rotors: false }),
         };
         for (const g of Object.values(this.ghosts)) {
             if (g) {
@@ -139,11 +141,11 @@ export class Viewport {
         };
         this.vectors = {
             vel: this.d.vel && this._vector(C0, 2),
-            velSet: this.d.velSet && this._vector(C1, 1.5, true),
-            velMeas: this.d.velMeas && this._vector(C2, 1.5, true),
+            velSet: this.d.velSet && this._vector(C1, DASHED_WIDTH, true),
+            velMeas: this.d.velMeas && this._vector(C2, DASHED_WIDTH, true),
             acc: this.d.acc && this._vector(C3, 2),
-            accSet: this.d.accSet && this._vector(C4, 1.5, true),
-            accMeas: this.d.accMeas && this._vector(C5, 1.5, true),
+            accSet: this.d.accSet && this._vector(C4, DASHED_WIDTH, true),
+            accMeas: this.d.accMeas && this._vector(C5, DASHED_WIDTH, true),
         };
         for (const o of [...Object.values(this.markers), ...Object.values(this.vectors)]) {
             if (o) {

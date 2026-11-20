@@ -282,6 +282,7 @@
     align-items: center;
     gap: 4px;
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 .fp-chip i {
     width: 10px;
@@ -289,14 +290,21 @@
     border-radius: 2px;
     background: var(--fp-c);
 }
+/* fixed width so chips don't jitter or re-wrap as values change: 9ch is the longest
+   output of fmt() in plots.js ("-1.23e-45"); keep the two in sync */
 .fp-v {
     color: var(--fp-muted);
-    min-width: 5ch;
+    width: 9ch;
+    flex-shrink: 0;
+    overflow: hidden;
     text-align: right;
     font: 10.5px ui-monospace, monospace;
 }
 .fp-v-solid {
     color: var(--fp-text);
+}
+.fp-v-dashed {
+    width: 12ch; /* plus the "sp " prefix */
 }
 .fp-v-dashed::before {
     content: "sp ";
