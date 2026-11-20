@@ -139,6 +139,50 @@ Quaternions are scalar-first: `[w, x, y, z]`. Arrays are expected with time alon
 `Nx4` for attitude and `Nx3` for position, velocity and acceleration. See the `Viewport` docstring for all
 supported inputs.
 
+## Browser version (`pyFlightPlotter.web`)
+
+The same plots in the browser, drawn with [uPlot](https://github.com/leeoniya/uPlot) and three.js: fast enough
+for long, high-rate logs, with a synchronized cursor and live values, zoom and pan, playback, a PSD of the visible
+window per panel, PNG export, and a 3D view. Python supplies the signals, panels and 3D view; `show()` serves them
+from a local server (127.0.0.1) and opens the browser.
+
+```python
+from pyFlightPlotter import Tailsitter
+from pyFlightPlotter.web import WebPlotter
+
+wp = WebPlotter(t, name="Demo")
+wp.add_signals({"pos[0]": x, "pos[1]": y, "pos[2]": z})          # dict or pandas DataFrame
+wp.add_panel("Position", solid=["pos[0]", "pos[1]", "pos[2]"],   # as _plot_timeseries
+             series_labels=["X", "Y", "Z"], style_labels=[None, "Estimate", None], ylabel="[m]")
+wp.set_viewport(Tailsitter(), att=quat_wxyz, pos=pos_xyz)         # as Viewport
+wp.add_event(5.0, "takeoff")
+wp.show()
+```
+
+Column references in panels and the viewport are names, `(name, scale)` tuples, or arrays. A complete example is in
+`docs/examples/web_example.py`.
+
+The JS part is a standalone ES module package (`package.json` at the repository root, sources in
+`pyFlightPlotter/web/static/flightplotter/`), usable without Python:
+
+```js
+import { FlightPlotter, Dataset, quadrotor } from "flightplotter";
+import "flightplotter/style.css";
+import "uplot/dist/uPlot.min.css";
+
+const fp = new FlightPlotter(element, {
+    data: { time, columns: { "pos[0]": Float32Array, ... }, events: [{ t, name, kind }] },
+    panels: [{ title: "Position", ylabel: "[m]", styles: [null, "Estimate", null],
+               series: [{ label: "X", solid: "pos[0]" }] }],
+    viewport: { craft: quadrotor(), att: ["q0", "q1", "q2", "q3"], pos: ["pos[0]", "pos[1]", "pos[2]"] },
+    editable: false,   // no "+ Plot"
+    theme: "dark",
+});
+```
+
+It needs `uplot` and `three` resolvable by the bundler; the page served from Python uses the copies in
+`pyFlightPlotter/web/static/vendor/` through an import map.
+
 ## Development
 
 ```sh
