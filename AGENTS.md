@@ -8,7 +8,7 @@ Facts about this repo that aren't obvious from the code. User-facing usage is in
   arguments as `Viewport`. Keep the two signatures in step when changing either one.
 - The library is domain-agnostic. It knows nothing about Indiflight, Betaflight or BFL files, and the browser version has
   no file loading or drag-and-drop. Consumers decode, scale to SI and choose the layout. Known consumers:
-  `support/LogAnalysis/webPlotter.py` in tudelft/indiflight (this repo is its submodule), and the Flight Plotter tab in
+  `support/LogAnalysis/webPlotter.py` in tudelft/indiflight, and the Flight Plotter tab in
   tudelft/indiflight-configurator (`src/js/indiflight/flightPlotterLayout.js`). Don't add consumer-specific code here.
 
 ## JS package (`pyFlightPlotter/web/static/flightplotter/`)
