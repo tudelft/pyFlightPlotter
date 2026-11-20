@@ -38,8 +38,17 @@ Homepage = "https://github.com/tudelft/pyFlightPlotter"
 Repository = "https://github.com/tudelft/pyFlightPlotter"
 Issues = "https://github.com/tudelft/pyFlightPlotter/issues"
 
-[tool.setuptools]
-packages = ["pyFlightPlotter", "pyFlightPlotter.web"]
+# Namespace discovery so the asset folders under web/static/ count as (data-only)
+# packages; listing them by hand triggers setuptools' "Package would be ignored".
+[tool.setuptools.packages.find]
+include = ["pyFlightPlotter*"]
+namespaces = true
 
 [tool.setuptools.package-data]
-"pyFlightPlotter.web" = ["static/*.*", "static/flightplotter/*", "static/vendor/**/*"]
+"pyFlightPlotter.web.static" = ["*"]
+"pyFlightPlotter.web.static.flightplotter" = ["*"]
+"pyFlightPlotter.web.static.vendor.uplot" = ["*"]
+"pyFlightPlotter.web.static.vendor.three" = ["*"]
+"pyFlightPlotter.web.static.vendor.three.addons.controls" = ["*"]
+"pyFlightPlotter.web.static.vendor.three.addons.helpers" = ["*"]
+"pyFlightPlotter.web.static.vendor.three.addons.lines" = ["*"]
