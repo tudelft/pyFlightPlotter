@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flight Plotter</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="vendor/uplot/uPlot.min.css">
+<link rel="stylesheet" href="flightplotter/style.css">
+<script type="importmap">
+{ "imports": {
+    "uplot": "./vendor/uplot/uPlot.esm.js",
+    "three": "./vendor/three/three.module.min.js",
+    "three/addons/": "./vendor/three/addons/"
+} }
+</script>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body { background: #eef0f3; }
+  @media (prefers-color-scheme: dark) { body { background: #14161a; color: #e3e6eb; } }
+  #msg { font: 14px system-ui, sans-serif; padding: 24px; }
+</style>
+</head>
+<body>
+<div id="msg">Loading…</div>
+<script type="module" src="main.js"></script>
+</body>
+</html>

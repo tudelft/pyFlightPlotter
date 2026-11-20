@@ -1,0 +1,408 @@
+/* FlightPlotter styles, all scoped under .fp-root. Theme through the --fp-* variables;
+   .fp-dark switches to the dark set. Also needs uPlot's uPlot.min.css. */
+.fp-root {
+    --fp-bg: #eef0f3;
+    --fp-panel: #ffffff;
+    --fp-text: #1d2128;
+    --fp-muted: #646b78;
+    --fp-border: #d7dbe2;
+    --fp-hover: #eef0f3;
+    --fp-accent: #2563eb;
+    --fp-accent-soft: #e6eefe;
+    --fp-grid: rgba(0, 0, 0, 0.09);
+    --fp-tick: rgba(0, 0, 0, 0.2);
+    --fp-cursor: rgba(0, 0, 0, 0.55);
+    --fp-grid3d: #d0d0d0;
+    --fp-event: #b42318;
+    --fp-event-mode: #6d3fc0;
+    --fp-view-w: 34%;
+    --fp-row-h: 220px;
+
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-height: 300px;
+    overflow: hidden;
+    background: var(--fp-bg);
+    color: var(--fp-text);
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.fp-root.fp-dark {
+    --fp-bg: #14161a;
+    --fp-panel: #1d2026;
+    --fp-text: #e3e6eb;
+    --fp-muted: #9aa1ad;
+    --fp-border: #343842;
+    --fp-hover: #2a2e36;
+    --fp-accent: #5b8def;
+    --fp-accent-soft: #24324d;
+    --fp-grid: rgba(255, 255, 255, 0.09);
+    --fp-tick: rgba(255, 255, 255, 0.25);
+    --fp-cursor: rgba(255, 255, 255, 0.6);
+    --fp-grid3d: #3a3e46;
+    --fp-event: #f0716a;
+    --fp-event-mode: #b39cf0;
+}
+.fp-root *,
+.fp-root *::before,
+.fp-root *::after {
+    box-sizing: border-box;
+}
+.fp-root button,
+.fp-root select,
+.fp-root input {
+    font: inherit;
+    color: inherit;
+}
+.fp-root button,
+.fp-root select {
+    padding: 2px 9px;
+    border: 1px solid var(--fp-border);
+    border-radius: 6px;
+    background: var(--fp-panel);
+    cursor: pointer;
+}
+.fp-root button:hover {
+    border-color: var(--fp-muted);
+}
+.fp-root button.fp-on {
+    background: var(--fp-accent-soft);
+    border-color: var(--fp-accent);
+}
+.fp-root kbd {
+    font: 11px ui-monospace, monospace;
+    padding: 0 4px;
+    border: 1px solid var(--fp-border);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+}
+
+/* toolbar */
+.fp-toolbar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: var(--fp-panel);
+    border-bottom: 1px solid var(--fp-border);
+    white-space: nowrap;
+    overflow-x: auto;
+}
+.fp-title {
+    font-weight: 650;
+    max-width: 28%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.fp-slot {
+    display: contents;
+}
+.fp-sep {
+    width: 1px;
+    align-self: stretch;
+    background: var(--fp-border);
+}
+.fp-grow {
+    flex: 1;
+}
+.fp-toolbar label {
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+    color: var(--fp-muted);
+}
+.fp-clock {
+    font: 12px ui-monospace, monospace;
+    min-width: 15ch;
+}
+.fp-pin {
+    color: var(--fp-accent);
+}
+.fp-status {
+    color: var(--fp-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* main area */
+.fp-main {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+}
+.fp-gridwrap {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    padding: 6px;
+}
+.fp-grid {
+    display: grid;
+    gap: 6px;
+    grid-template-columns: repeat(var(--fp-ncols, 3), minmax(0, 1fr));
+    grid-auto-rows: var(--fp-row-h);
+}
+.fp-split {
+    flex: none;
+    width: 6px;
+    cursor: col-resize;
+}
+.fp-split:hover,
+.fp-split.fp-drag {
+    background: var(--fp-accent-soft);
+}
+.fp-view {
+    flex: none;
+    width: var(--fp-view-w);
+    position: relative;
+    border-left: 1px solid var(--fp-border);
+    background: var(--fp-panel);
+}
+.fp-view.fp-hidden {
+    display: none;
+}
+.fp-view3d {
+    position: absolute;
+    inset: 0;
+}
+.fp-view3d canvas {
+    display: block;
+}
+.fp-viewbar {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    right: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    pointer-events: none;
+}
+.fp-viewbar > * {
+    pointer-events: auto;
+}
+.fp-root .fp-viewbar button {
+    padding: 1px 8px;
+    font-size: 12px;
+}
+.fp-viewbar button i {
+    display: inline-block;
+    width: 14px;
+    height: 0;
+    border-top: 2.5px solid var(--fp-c);
+    vertical-align: middle;
+    margin-right: 5px;
+}
+.fp-viewbar button i.fp-dash {
+    border-top-style: dashed;
+}
+.fp-viewbar button.fp-off {
+    opacity: 0.45;
+}
+
+/* panels */
+.fp-panel {
+    background: var(--fp-panel);
+    border: 1px solid var(--fp-border);
+    border-radius: 7px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+}
+.fp-panel > header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 8px;
+    padding: 3px 6px 0 8px;
+    min-width: 0;
+}
+.fp-panel h3 {
+    font-size: 12.5px;
+    margin: 0;
+    font-weight: 650;
+    white-space: nowrap;
+    flex: none;
+    max-width: 60%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.fp-stylekey {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
+}
+.fp-root .fp-sk,
+.fp-root .fp-chip {
+    border: none;
+    background: none;
+    padding: 0 5px;
+    font-size: 11px;
+    border-radius: 4px;
+}
+.fp-root .fp-sk {
+    color: var(--fp-muted);
+    white-space: nowrap;
+}
+.fp-root .fp-sk:hover,
+.fp-root .fp-chip:hover {
+    background: var(--fp-hover);
+}
+.fp-sk i {
+    display: inline-block;
+    width: 16px;
+    height: 0;
+    vertical-align: middle;
+    margin-right: 4px;
+    border-top: 1.5px solid var(--fp-muted);
+}
+.fp-sk-light i {
+    opacity: 0.4;
+}
+.fp-sk-dashed i {
+    border-top: 2px dashed var(--fp-muted);
+}
+.fp-sk.fp-off {
+    text-decoration: line-through;
+    opacity: 0.5;
+}
+.fp-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1px 4px;
+    padding: 1px 6px 0;
+}
+.fp-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-variant-numeric: tabular-nums;
+}
+.fp-chip i {
+    width: 10px;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--fp-c);
+}
+.fp-v {
+    color: var(--fp-muted);
+    min-width: 5ch;
+    text-align: right;
+    font: 10.5px ui-monospace, monospace;
+}
+.fp-v-solid {
+    color: var(--fp-text);
+}
+.fp-v-dashed::before {
+    content: "sp ";
+    opacity: 0.6;
+}
+.fp-chip.fp-off {
+    opacity: 0.35;
+}
+.fp-chip.fp-off .fp-lbl {
+    text-decoration: line-through;
+}
+.fp-plot {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+}
+.fp-plot .u-select {
+    background: rgba(37, 99, 235, 0.14);
+}
+.fp-plot .u-cursor-x {
+    border-right: 1px solid var(--fp-cursor);
+}
+.fp-plot .u-axis {
+    color: var(--fp-muted);
+}
+.fp-playhead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 0;
+    border-left: 1.5px solid var(--fp-accent);
+    pointer-events: none;
+    z-index: 5;
+}
+.fp-tools {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    z-index: 20;
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+.fp-panel:hover .fp-tools {
+    opacity: 1;
+}
+.fp-root .fp-tools button {
+    padding: 0 5px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* dialogs */
+.fp-dialog {
+    border: 1px solid var(--fp-border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    max-width: calc(100vw - 32px);
+    background: var(--fp-panel);
+    color: var(--fp-text);
+}
+.fp-dialog::backdrop {
+    background: rgba(20, 24, 32, 0.35);
+}
+.fp-dialog > header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+.fp-dialog h2 {
+    font-size: 15px;
+    margin: 0;
+    flex: 1;
+}
+.fp-dialog ul {
+    margin: 0;
+    padding-left: 18px;
+    line-height: 1.9;
+}
+.fp-psd-info {
+    color: var(--fp-muted);
+    font-size: 12px;
+    margin-bottom: 6px;
+}
+.fp-dialog input {
+    width: min(560px, 80vw);
+    padding: 6px 8px;
+    border: 1px solid var(--fp-border);
+    border-radius: 6px;
+    background: var(--fp-bg);
+}
+.fp-siglist {
+    height: min(60vh, 520px);
+    overflow-y: auto;
+    margin-top: 8px;
+    font: 12px ui-monospace, monospace;
+}
+.fp-siglist div {
+    padding: 2px 6px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+.fp-siglist div:hover,
+.fp-siglist div.fp-sel {
+    background: var(--fp-accent-soft);
+}
