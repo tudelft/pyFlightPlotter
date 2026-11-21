@@ -6,14 +6,17 @@ export class Dataset {
      * @param {ArrayLike<number>} o.time  sample times in seconds, monotonic
      * @param {Object<string, ArrayLike<number>>|Map<string, ArrayLike<number>>} o.columns  signals, same length as time
      * @param {{t: number, name: string, kind?: string}[]} [o.events]  time markers
+     * @param {Object<string, string>} [o.descriptions]  per signal, how it came about (e.g. for derived signals);
+     *                                                    shown in tooltips and the signal picker
      */
-    constructor({ time, columns = {}, events = [] }) {
+    constructor({ time, columns = {}, events = [], descriptions = {} }) {
         this.t = time instanceof Float64Array ? time : Float64Array.from(time);
         this.n = this.t.length;
         if (this.n < 2) {
             throw new Error("need at least two samples");
         }
         this.cols = new Map();
+        this.descriptions = new Map(Object.entries(descriptions));
         const entries = columns instanceof Map ? columns.entries() : Object.entries(columns);
         for (const [name, arr] of entries) {
             this.add(name, arr);
@@ -34,6 +37,11 @@ export class Dataset {
             throw new Error(`signal "${name}" has ${arr.length} samples, time has ${this.n}`);
         }
         this.cols.set(name, arr);
+    }
+
+    /** the signal's description, or "" */
+    describe(name) {
+        return this.descriptions.get(name) ?? "";
     }
 
     names() {

@@ -123,7 +123,7 @@ export class Viewport {
         // -------------------------------------------------- craft ghosts
         const [C0, C1, C2, C3, C4, C5, C6] = COLORS;
         this.ghosts = {
-            est: this.d.att && this._craft({ color: C0, width: 2.5, rotorColor: C5 }),
+            est: this.d.att && this._craft({ color: C0, width: 2.5, rotorColor: C5, labels: true }),
             set: this.d.attSet && this._craft({ color: C1, width: DASHED_WIDTH, dashed: true, rotorColor: C6 }),
             meas: this.d.attMeas && this._craft({ color: C2, width: DASHED_WIDTH, dashed: true, rotors: false }),
         };
@@ -233,7 +233,7 @@ export class Viewport {
         return l;
     }
 
-    _craft({ color, width, dashed = false, rotorColor, rotors = true }) {
+    _craft({ color, width, dashed = false, rotorColor, rotors = true, labels = false }) {
         const geo = this.geometry;
         const root = new THREE.Group();
         const mat = this._mat(color, width, dashed);
@@ -242,7 +242,7 @@ export class Viewport {
         }
 
         const rot = [];
-        for (const r of geo.rotors || []) {
+        (geo.rotors || []).forEach((r, i) => {
             const axis = new THREE.Vector3(...r.axis).normalize();
             const a = Math.abs(axis.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
             const e1 = a.clone().cross(axis).normalize();
@@ -261,6 +261,31 @@ export class Viewport {
                 pts.push(p.toArray());
             }
             body.add(this._line(pts, mat));
+            if (r.spin === "cw" || r.spin === "ccw") {
+                // e1 -> e2 runs counter-clockwise seen from where the axis points
+                const sgn = r.spin === "ccw" ? 1 : -1;
+                for (const u of [Math.PI / 4, (5 * Math.PI) / 4]) {
+                    const radial = e1.clone().multiplyScalar(Math.cos(u)).addScaledVector(e2, Math.sin(u));
+                    const tang = e1.clone().multiplyScalar(-Math.sin(u)).addScaledVector(e2, Math.cos(u)).multiplyScalar(sgn);
+                    const head = radial.clone().multiplyScalar(r.R);
+                    const back = head.clone().addScaledVector(tang, -0.4 * r.R);
+                    body.add(this._line([
+                        back.clone().addScaledVector(radial, 0.2 * r.R).toArray(),
+                        head.toArray(),
+                        back.clone().addScaledVector(radial, -0.2 * r.R).toArray(),
+                    ], mat));
+                }
+            }
+            if (labels) {
+                // outside the disc, away from the craft's centre
+                const out = new THREE.Vector3(...r.xyz).projectOnPlane(axis);
+                if (out.lengthSq() < 1e-9) {
+                    out.copy(e1);
+                }
+                const label = this._label(r.label ?? String(i + 1), color, r.R);
+                label.position.copy(out.normalize().multiplyScalar(1.6 * r.R));
+                body.add(label);
+            }
             const tip = axis.clone().multiplyScalar(2 * r.R).toArray();
             let thrust = null;
             if (rotors) {
@@ -275,7 +300,7 @@ export class Viewport {
                 a1: new THREE.Vector3(...(r.tilt_axis || [1, 0, 0])).normalize(),
                 a2: new THREE.Vector3(...(r.tilt2_axis || [0, 1, 0])).normalize(),
             });
-        }
+        });
 
         const surf = [];
         for (const s of geo.surfaces || []) {
@@ -288,6 +313,24 @@ export class Viewport {
             surf.push({ pivot, axis: new THREE.Vector3(...s.tilt_axis).normalize() });
         }
         return { root, rotors: rot, surfaces: surf };
+    }
+
+    /** text sprite, height h in craft units */
+    _label(text, color, h) {
+        const c = document.createElement("canvas");
+        c.width = 128;
+        c.height = 64;
+        const g = c.getContext("2d");
+        g.font = "bold 44px system-ui, sans-serif";
+        g.textAlign = "center";
+        g.textBaseline = "middle";
+        g.fillStyle = color;
+        g.fillText(text, 64, 34);
+        const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
+        s.scale.set(2 * h, h, 1);
+        s.renderOrder = 11;
+        s.userData.rotorLabel = true;
+        return s;
     }
 
     _sprite(color, kind, px) {
@@ -479,12 +522,22 @@ export class Viewport {
                 tr.full.visible = tr.trail.visible = on;
             }
         }
+        if (key === "labels") {
+            this.ghosts.est?.root.traverse((o) => {
+                if (o.userData.rotorLabel) {
+                    o.visible = on;
+                }
+            });
+        }
         this.setTime(this.time);
     }
 
     has(key) {
         if (key === "trail") {
             return this.trails.length > 0;
+        }
+        if (key === "labels") {
+            return !!this.ghosts.est && (this.geometry.rotors || []).length > 0;
         }
         const marker = { est: "pos", set: "posSet", meas: "posMeas" }[key];
         return !!(this.ghosts[key] || this.markers[marker]);

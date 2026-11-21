@@ -18,6 +18,10 @@ layout; this module serves them, with the page, from a local HTTP server
     wp.set_viewport(Quadrotor(), att=quat_wxyz)        # N x 4 array or 4 column names
     wp.show()
 
+Panels go into tabs: add_tab("Name") starts a new one, which later add_panel calls fill. Instead of add_panel /
+set_viewport, a layout exported from the page ("Layout ⤓") can be loaded with wp.set_layout("layout.json");
+wp.layout() returns the current one in the same format.
+
 Column references anywhere (panels, viewport) are a column name, a
 (name, scale) tuple, or an array (registered as a new signal).
 """
@@ -37,6 +41,8 @@ logger = logging.getLogger(__name__)
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 TIME = "__time__"
+LAYOUT_FORMAT = "flightplotter-layout"  # as layout.js
+LAYOUT_VERSION = 2
 
 
 def _jsonable(v):
@@ -87,20 +93,24 @@ class WebPlotter:
         self.options = {"editable": bool(editable), "ncols": int(ncols), "rows": int(rows), "theme": theme}
         self.signals = {}
         self.dtypes = {}
-        self.panels = []
+        self.descriptions = {}
+        self.tabs = [{"name": "Plots", "view": True, "panels": []}]
         self.viewport = None
         self.events = []
         self._anon = 0
 
     # ------------------------------------------------------------ data
-    def add_signal(self, name, values, float64=False):
+    def add_signal(self, name, values, float64=False, description=None):
         """Add a signal (same length as time). float64 keeps full precision,
-        e.g. for bit masks or GPS coordinates; the default sends float32."""
+        e.g. for bit masks or GPS coordinates; the default sends float32.
+        description: how the signal came about, shown in tooltips (e.g. for derived signals)."""
         values = np.asarray(values, dtype=float).ravel()
         if values.size != self.n:
             raise ValueError(f"signal '{name}' has {values.size} samples, time has {self.n}")
         self.signals[name] = values
         self.dtypes[name] = "f8" if float64 else "f4"
+        if description:
+            self.descriptions[name] = str(description)
         return name
 
     def add_signals(self, data, float64=()):
@@ -142,6 +152,19 @@ class WebPlotter:
         return [self._ref(c) for c in x]
 
     # ------------------------------------------------------------ layout
+    @property
+    def panels(self):
+        """panels of the tab that add_panel currently fills"""
+        return self.tabs[-1]["panels"]
+
+    def add_tab(self, name, view=False):
+        """Start a new tab; the following add_panel calls fill it. view: show the 3D view in this tab."""
+        if len(self.tabs) == 1 and not self.tabs[0]["panels"]:
+            self.tabs[0].update(name=str(name), view=bool(view) or self.tabs[0]["view"])
+        else:
+            self.tabs.append({"name": str(name), "view": bool(view), "panels": []})
+        return self
+
     def add_panel(self, title, solid, light=None, dashed=None, series_labels=None,
                   style_labels=(None, None, None), ylabel="", ylimits=(None, None),
                   row=None, col=None, colors=None):
@@ -214,6 +237,37 @@ class WebPlotter:
         }
         return self
 
+    def layout(self):
+        """panels and viewport in the page's layout file format (flightplotter/layout.js)"""
+        return _jsonable({"format": LAYOUT_FORMAT, "version": LAYOUT_VERSION,
+                          "tabs": self.tabs, "viewport": self.viewport})
+
+    def set_layout(self, layout):
+        """Replace the tabs, and the viewport if the layout has a "viewport" key, with a layout
+        dict or the path of a JSON file exported from the page. The page checks the layout in
+        detail; column references not among the signals are skipped there."""
+        if isinstance(layout, (str, os.PathLike)):
+            with open(layout, encoding="utf-8") as f:
+                layout = json.load(f)
+        if isinstance(layout, dict) and "tabs" not in layout and isinstance(layout.get("panels"), list):
+            layout = {**layout, "tabs": [{"name": "Plots", "view": True, "panels": layout["panels"]}]}  # version 1
+        if not isinstance(layout, dict) or not isinstance(layout.get("tabs"), list) or not layout["tabs"]:
+            raise ValueError("a layout is a dict with a non-empty 'tabs' list")
+        if layout.get("format", LAYOUT_FORMAT) != LAYOUT_FORMAT:
+            raise ValueError(f"not a {LAYOUT_FORMAT} file")
+        version = layout.get("version", LAYOUT_VERSION)
+        if not isinstance(version, (int, float)) or isinstance(version, bool):
+            raise ValueError("the layout's version must be a number")
+        if version > LAYOUT_VERSION:
+            raise ValueError(f"layout version {version} is newer than this pyFlightPlotter reads")
+        if not all(isinstance(t, dict) for t in layout["tabs"]):
+            raise ValueError("each tab of a layout is a dict")
+        self.tabs = [{"name": t.get("name") or f"Tab {i + 1}", "view": t.get("view", i == 0),
+                      "panels": list(t.get("panels", []))} for i, t in enumerate(layout["tabs"])]
+        if "viewport" in layout:
+            self.viewport = layout["viewport"]
+        return self
+
     # ------------------------------------------------------------ serialization
     def to_bytes(self):
         """(meta.json, data.bin) as served to the page"""
@@ -226,7 +280,8 @@ class WebPlotter:
             chunks.append(b)
             off += len(b)
         meta = {"title": self.name, "n": self.n, "time": TIME, "columns": meta_cols,
-                "panels": self.panels, "viewport": self.viewport, "events": self.events,
+                "tabs": self.tabs, "viewport": self.viewport, "events": self.events,
+                "descriptions": self.descriptions,
                 **self.options}
         return json.dumps(_jsonable(meta)).encode(), b"".join(chunks)
 

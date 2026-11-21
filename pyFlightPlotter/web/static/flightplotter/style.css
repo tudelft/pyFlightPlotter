@@ -108,6 +108,24 @@
 .fp-grow {
     flex: 1;
 }
+.fp-btngroup {
+    display: inline-flex;
+}
+.fp-root .fp-btngroup button:not(:first-child) {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    margin-left: -1px;
+}
+.fp-root .fp-btngroup button:not(:last-of-type) {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+/* no viewport spec (yet): an imported layout can add one */
+.fp-root.fp-noview .fp-view,
+.fp-root.fp-noview .fp-split,
+.fp-root.fp-noview .fp-view-btn {
+    display: none;
+}
 .fp-toolbar label {
     display: inline-flex;
     gap: 5px;
@@ -413,4 +431,159 @@
 .fp-siglist div:hover,
 .fp-siglist div.fp-sel {
     background: var(--fp-accent-soft);
+}
+
+/* panel editing */
+.fp-drag-handle {
+    cursor: grab;
+}
+.fp-panel.fp-dragged {
+    opacity: 0.45;
+}
+.fp-panel.fp-drop {
+    outline: 2px dashed var(--fp-accent);
+    outline-offset: -2px;
+}
+.fp-drop-ghost {
+    border: 2px dashed var(--fp-accent);
+    border-radius: 8px;
+    background: var(--fp-accent-soft);
+    pointer-events: none;
+}
+.fp-root .fp-edit input {
+    width: auto;
+    min-width: 0;
+    padding: 3px 6px;
+}
+.fp-form {
+    display: grid;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+.fp-form label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.fp-form label > span:first-child {
+    flex: none;
+    width: 80px;
+    color: var(--fp-muted);
+}
+.fp-form label > input {
+    flex: 1;
+}
+.fp-muted {
+    color: var(--fp-muted);
+}
+.fp-series-table {
+    border-collapse: collapse;
+    width: 100%;
+}
+.fp-series-table th {
+    text-align: left;
+    font-weight: 600;
+    padding: 2px 4px;
+}
+.fp-series-table th small {
+    font-weight: 400;
+    color: var(--fp-muted);
+}
+.fp-series-table td {
+    padding: 2px;
+}
+.fp-root .fp-series-table input {
+    width: 100%;
+}
+.fp-root .fp-series-table input.fp-ref {
+    font: 12px ui-monospace, monospace;
+    min-width: 150px;
+}
+.fp-root .fp-edit input.fp-missing {
+    border-color: #d33;
+    background: color-mix(in srgb, #d33 10%, var(--fp-bg));
+}
+.fp-rowtools {
+    white-space: nowrap;
+}
+.fp-root .fp-rowtools button {
+    padding: 0 6px;
+}
+.fp-edit-foot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+}
+.fp-edit-error {
+    color: #d33;
+}
+
+/* craft selector and rotor dialog, bottom left of the 3D view (the axis gizmo is bottom right) */
+.fp-viewbar.fp-viewbar2 {
+    top: auto;
+    bottom: 6px;
+    right: 110px;
+}
+.fp-root [hidden] {
+    display: none !important;
+}
+
+/* tabs */
+.fp-tabs {
+    flex: none;
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    padding: 4px 10px 0;
+    background: var(--fp-panel);
+    border-bottom: 1px solid var(--fp-border);
+    overflow-x: auto;
+    white-space: nowrap;
+}
+.fp-tab {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--fp-border);
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    background: var(--fp-bg);
+    margin-bottom: -1px;
+}
+.fp-tab.fp-active {
+    background: var(--fp-panel);
+    border-bottom: 1px solid var(--fp-panel);
+    font-weight: 600;
+}
+.fp-root .fp-tab button,
+.fp-root .fp-tabs > .fp-tabadd {
+    border: none;
+    border-radius: 6px 6px 0 0;
+    background: transparent;
+    padding: 3px 8px;
+}
+.fp-root .fp-tab button:not(.fp-tabname) {
+    color: var(--fp-muted);
+    padding: 3px 5px;
+}
+.fp-root .fp-tab button:not(.fp-tabname):hover {
+    color: var(--fp-text);
+}
+.fp-tab.fp-popped .fp-tabname {
+    font-style: italic;
+    color: var(--fp-muted);
+}
+.fp-tab.fp-popped .fp-tabname::after {
+    content: " ↗";
+}
+.fp-root .fp-tabinput {
+    width: 140px;
+    padding: 2px 6px;
+    margin: 1px 4px;
+}
+
+.fp-siglist .fp-desc {
+    margin-left: 10px;
+    color: var(--fp-muted);
+    font-family: system-ui, sans-serif;
 }
