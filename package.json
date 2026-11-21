@@ -1,6 +1,6 @@
 {
   "name": "flightplotter",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Synchronized time-series and 3D craft plots for flight logs in the browser (uPlot + three.js), the JS side of pyFlightPlotter",
   "type": "module",
   "license": "GPL-3.0-or-later",
