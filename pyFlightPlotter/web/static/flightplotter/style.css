@@ -518,3 +518,13 @@
 .fp-edit-error {
     color: #d33;
 }
+
+/* craft selector and rotor dialog, bottom left of the 3D view (the axis gizmo is bottom right) */
+.fp-viewbar.fp-viewbar2 {
+    top: auto;
+    bottom: 6px;
+    right: 110px;
+}
+.fp-root [hidden] {
+    display: none !important;
+}

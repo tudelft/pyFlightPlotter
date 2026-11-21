@@ -24,6 +24,27 @@ export function resolveRef(ds, r) {
     return ds.has(col) ? { col, scale: scale ?? 1 } : null;
 }
 
+/** column reference -> "name" or "name * scale", as typed in the edit dialogs */
+export function refToText(r) {
+    if (r == null) {
+        return "";
+    }
+    if (Array.isArray(r)) {
+        return r[1] == null || r[1] === 1 ? r[0] : `${r[0]} * ${r[1]}`;
+    }
+    return r;
+}
+
+/** "name" | "name * scale" | "" -> column reference */
+export function refFromText(t) {
+    t = t.trim();
+    if (!t) {
+        return null;
+    }
+    const m = t.match(/^(.*\S)\s*\*\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)$/i);
+    return m ? [m[1], +m[2]] : t;
+}
+
 /** resolve column references; drop series styles whose column is missing and panels left empty */
 export function resolvePanels(ds, panels) {
     const out = [];
@@ -176,6 +197,14 @@ export function parseLayout(x) {
             for (const k of ["body", "rotors", "surfaces"]) {
                 optional(v.craft[k], Array.isArray, `viewport.craft.${k}`, "a list");
             }
+            optional(v.craft.name, isStr, "viewport.craft.name", "a string");
+            (v.craft.rotors || []).forEach((r, i) => {
+                if (!isObj(r)) {
+                    fail(`viewport.craft.rotors[${i}]`, "expected an object");
+                }
+                optional(r.spin, (y) => y === "cw" || y === "ccw", `viewport.craft.rotors[${i}].spin`, '"cw", "ccw" or null');
+                optional(r.label, isStr, `viewport.craft.rotors[${i}].label`, "a string");
+            });
         }
         for (const k of VIEW_VECTORS) {
             optional(v[k], Array.isArray, `viewport.${k}`, "a list of column references");

@@ -2,8 +2,11 @@
 //
 // Plain-object format (what Craft3D.toJSON() returns and Python's WebPlotter sends):
 //   { body: [polyline, ...],                         polyline = [[x, y, z], ...], body frame
-//     rotors: [{ xyz, axis, R, tilt_xyz, tilt_axis, tilt2_axis }],
-//     surfaces: [{ tilt_xyz, tilt_axis, geometry: [polyline, ...] }] }
+//     rotors: [{ xyz, axis, R, tilt_xyz, tilt_axis, tilt2_axis, spin?, label? }],
+//     surfaces: [{ tilt_xyz, tilt_axis, geometry: [polyline, ...] }],
+//     name? }                                          shown in the 3D view's craft selector
+// spin: "cw" | "ccw", seen from above the rotor (from where its axis points); drawn as arrowheads.
+// label: shown next to the rotor in the 3D view (default: its number, 1-based).
 // Rotor tilt follows Craft3D.generate(): the rotor rotates about the point
 // xyz - tilt_xyz, first about tilt_axis, then about tilt2_axis = axis × tilt_axis.
 
@@ -14,21 +17,25 @@ const norm = (v) => {
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 
 export class Craft3D {
-    /** @param {number[][][]} body  list of polylines */
-    constructor(body = [[[0, 0, 0]]]) {
+    /**
+     * @param {number[][][]} body  list of polylines
+     * @param {string} [name]
+     */
+    constructor(body = [[[0, 0, 0]]], name) {
+        this.name = name;
         this.body = body;
         this.rotors = [];
         this.surfaces = [];
     }
 
-    addRotor({ xyz = [0, 0, 0], axis = [0, 0, -1], tilt_xyz = [0, 0, 0], tilt_axis = [1, 0, 0], R = 0.1 } = {}) {
+    addRotor({ xyz = [0, 0, 0], axis = [0, 0, -1], tilt_xyz = [0, 0, 0], tilt_axis = [1, 0, 0], R = 0.1, spin, label } = {}) {
         const a = norm(axis);
         const ta = norm(tilt_axis);
         const t2 = cross(a, ta);
         if (Math.hypot(...t2) < 1e-4) {
             throw new Error("tilt_axis cannot be parallel to axis");
         }
-        this.rotors.push({ xyz, axis: a, R, tilt_xyz, tilt_axis: ta, tilt2_axis: norm(t2) });
+        this.rotors.push({ xyz, axis: a, R, tilt_xyz, tilt_axis: ta, tilt2_axis: norm(t2), spin, label });
         return this;
     }
 
@@ -38,7 +45,7 @@ export class Craft3D {
     }
 
     toJSON() {
-        return { body: this.body, rotors: this.rotors, surfaces: this.surfaces };
+        return { name: this.name, body: this.body, rotors: this.rotors, surfaces: this.surfaces };
     }
 }
 

@@ -1,6 +1,6 @@
 // FlightPlotter: synchronized time-series panels + 3D viewport in one component.
 import { Dataset } from "./dataset.js";
-import { STYLE_KEYS, resolvePanels, placePanels, layoutToJSON, parseLayout } from "./layout.js";
+import { STYLE_KEYS, resolvePanels, placePanels, layoutToJSON, parseLayout, refToText, refFromText } from "./layout.js";
 import { PlotGrid } from "./plots.js";
 import { renderPsd } from "./psd.js";
 
@@ -49,6 +49,9 @@ export class FlightPlotter {
      * @param {"light"|"dark"} [o.theme]
      * @param {string} [o.layoutName]  file name for exported layouts (default "layout")
      * @param {(layout: object) => void} [o.onLayoutChange]  after every edit, import or reset, with getLayout()
+     * @param {{label: string, viewport: object}[]} [o.crafts]  choices for the 3D view's craft selector; each
+     *                                 viewport is merged into the viewport spec (typically craft, rotor, rotorSet,
+     *                                 surface, surfaceSet), and the craft's name becomes the label
      */
     constructor(container, o) {
         this.ds = o.data instanceof Dataset ? o.data : new Dataset(o.data);
@@ -69,6 +72,7 @@ export class FlightPlotter {
         this.ncols = o.ncols ?? 3;
         this.layoutName = o.layoutName || "layout";
         this.onLayoutChange = o.onLayoutChange || null;
+        this.crafts = (o.crafts || []).map((c) => ({ label: c.label, viewport: JSON.parse(JSON.stringify(c.viewport)) }));
         this.hoverT = null;
         this.pinT = null;
         this.playing = false;
@@ -183,6 +187,7 @@ export class FlightPlotter {
             vbtn("set", "Setpoint", "#ff7f0e", true),
             vbtn("meas", "Measurement", "#2ca02c", true),
             vbtn("trail", "Path", "#999"),
+            vbtn("labels", "Rotor no.", "#999"),
             this.$follow,
             btn("Reset view", "Reset camera", "", () => {
                 this.follow = false;
@@ -190,7 +195,10 @@ export class FlightPlotter {
                 this.view?.setFollow(false);
             }),
         );
-        this.$view.append(h("div", { class: "fp-view3d" }), this.$viewbar);
+        this.$craftSel = h("select", { title: "Craft drawn in the 3D view", onchange: (e) => this._chooseCraft(+e.target.value) });
+        this.$rotorsBtn = btn("Rotors…", "Spin direction and signals per rotor", "", () => this._editRotors());
+        this.$viewbar2 = h("div", { class: "fp-viewbar fp-viewbar2" }, this.$craftSel, this.$rotorsBtn);
+        this.$view.append(h("div", { class: "fp-view3d" }), this.$viewbar, this.$viewbar2);
         main.append(this.$split, this.$view);
         this._bindSplitter();
 
@@ -274,6 +282,7 @@ export class FlightPlotter {
         const range = keepRange && this.grid ? this.grid.range : null;
         const panels = placePanels(resolvePanels(this.ds, this.panelSpecs), this.ncols);
         this.root.classList.toggle("fp-noview", !this.viewportSpec);
+        this._syncCraftSel();
         this.grid?.destroy();
         this.grid = new PlotGrid(this.$grid, this.ds, panels, this.theme, {
             editable: this.editable,
@@ -539,37 +548,123 @@ export class FlightPlotter {
         this.onLayoutChange?.(this.getLayout());
     }
 
-    /** dialog editing a panel spec in place: titles, limits, style labels and the series table */
-    _editPanel(spec) {
+    /** text input for a column reference, with signal suggestions and a mark when the log lacks it */
+    _refInput(r) {
         const names = this.ds.names();
         if (this.$signals.childElementCount !== names.length) {
             this.$signals.replaceChildren(...names.map((n) => h("option", { value: n })));
         }
-        const list = this.$signals.id;
-        const refText = (r) => (r == null ? "" : Array.isArray(r) ? (r[1] == null || r[1] === 1 ? r[0] : `${r[0]} * ${r[1]}`) : r);
-        // "name" or "name * scale"
-        const parseRef = (t) => {
-            t = t.trim();
-            if (!t) {
-                return null;
-            }
-            const m = t.match(/^(.*\S)\s*\*\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)$/i);
-            return m ? [m[1], +m[2]] : t;
-        };
-        const markMissing = (input) => {
-            const r = parseRef(input.value);
-            const col = Array.isArray(r) ? r[0] : r;
+        const i = h("input", { value: refToText(r), autocomplete: "off", list: this.$signals.id, class: "fp-ref", placeholder: "—" });
+        const mark = () => {
+            const ref = refFromText(i.value);
+            const col = Array.isArray(ref) ? ref[0] : ref;
             const missing = col != null && !this.ds.has(col);
-            input.classList.toggle("fp-missing", missing);
-            input.title = missing ? `"${col}" is not in this log` : 'A signal name, optionally "* scale"';
+            i.classList.toggle("fp-missing", missing);
+            i.title = missing ? `"${col}" is not in this log` : 'A signal name, optionally "* scale"';
         };
+        i.addEventListener("input", mark);
+        mark();
+        return i;
+    }
+
+    // ------------------------------------------------------------ craft
+    _syncCraftSel() {
+        const sel = this.$craftSel;
+        const name = this.viewportSpec?.craft?.name;
+        const idx = this.crafts.findIndex((c) => c.label === name);
+        sel.replaceChildren(
+            ...(idx < 0 ? [h("option", { value: -1, selected: true }, name || "Custom craft")] : []),
+            ...this.crafts.map((c, i) => h("option", { value: i, selected: i === idx }, c.label)),
+        );
+        sel.hidden = this.crafts.length === 0;
+        this.$rotorsBtn.hidden = !this.editable || !(this.viewportSpec?.craft?.rotors || []).length;
+        this.$viewbar2.hidden = sel.hidden && this.$rotorsBtn.hidden;
+    }
+
+    _chooseCraft(i) {
+        const c = this.crafts[i];
+        if (!c) {
+            return;
+        }
+        const v = structuredClone(c.viewport);
+        this.viewportSpec = { ...this.viewportSpec, ...v, craft: { ...v.craft, name: c.label } };
+        this._syncCraftSel();
+        this._buildView();
+        this._layoutChanged();
+    }
+
+    /** dialog per drawn rotor: label, spin direction, and the estimate / setpoint thrust signals */
+    _editRotors() {
+        const spec = this.viewportSpec;
+        const rotors = spec?.craft?.rotors || [];
+        // an actuator entry is a thrust ref or {thrust, tilt1, tilt2}
+        const isTilted = (e) => e && typeof e === "object" && !Array.isArray(e);
+        const thrustOf = (e) => (isTilted(e) ? e.thrust : e);
+        const withThrust = (e, r) => (isTilted(e) ? { ...e, thrust: r } : r);
+        const fmt = (v) => (Math.abs(v) < 5e-4 ? "0" : v.toFixed(3));
+        const rows = rotors.map((r, i) => {
+            const spin = h(
+                "select",
+                {},
+                ...[["", "—"], ["cw", "CW"], ["ccw", "CCW"]].map(([v, t]) => h("option", { value: v, selected: (r.spin || "") === v }, t)),
+            );
+            const label = h("input", { value: r.label ?? "", placeholder: String(i + 1), class: "fp-label" });
+            const est = this._refInput(thrustOf(spec.rotor?.[i]));
+            const set = this._refInput(thrustOf(spec.rotorSet?.[i]));
+            const tr = h(
+                "tr",
+                {},
+                h("td", {}, String(i + 1)),
+                h("td", { class: "fp-muted" }, r.xyz.map(fmt).join(", ")),
+                h("td", {}, label),
+                h("td", {}, spin),
+                h("td", {}, est),
+                h("td", {}, set),
+            );
+            return { tr, spin, label, est, set };
+        });
+        const apply = () => {
+            const craft = {
+                ...spec.craft,
+                rotors: rotors.map((r, i) => ({ ...r, spin: rows[i].spin.value || undefined, label: rows[i].label.value.trim() || undefined })),
+            };
+            delete craft.name; // edited, so no longer the chosen preset
+            const pad = (a) => Array.from({ length: rotors.length }, (_, i) => a?.[i] ?? null);
+            this.viewportSpec = {
+                ...spec,
+                craft,
+                rotor: pad(spec.rotor).map((e, i) => withThrust(e, refFromText(rows[i].est.value))),
+                rotorSet: pad(spec.rotorSet).map((e, i) => withThrust(e, refFromText(rows[i].set.value))),
+            };
+            this.$edit.close();
+            this._syncCraftSel();
+            this._buildView();
+            this._layoutChanged();
+        };
+        this.$edit.replaceChildren(
+            h(
+                "header",
+                {},
+                h("h2", {}, "Rotors"),
+                h("button", { type: "button", onclick: () => this.$edit.close() }, "Cancel"),
+                h("button", { type: "button", class: "fp-on", onclick: apply }, "Apply"),
+            ),
+            h(
+                "table",
+                { class: "fp-series-table" },
+                h("thead", {}, h("tr", {}, ...["#", "Position (body x, y, z)", "Label", "Spin", "Estimate (0..1)", "Setpoint (0..1)"].map((t) => h("th", {}, t)))),
+                h("tbody", {}, ...rows.map((r) => r.tr)),
+            ),
+            h("div", { class: "fp-edit-foot" }, h("span", { class: "fp-muted" }, 'Spin as seen from above. Thrust signals as "name * scale", scaled to 0..1.')),
+        );
+        this.$edit.showModal();
+    }
+
+    /** dialog editing a panel spec in place: titles, limits, style labels and the series table */
+    _editPanel(spec) {
         const text = (value, attrs = {}) => h("input", { value: value ?? "", autocomplete: "off", ...attrs });
-        const refInput = (r) => {
-            const i = text(refText(r), { list, class: "fp-ref", placeholder: "—" });
-            i.addEventListener("input", () => markMissing(i));
-            markMissing(i);
-            return i;
-        };
+        const refInput = (r) => this._refInput(r);
+        const parseRef = refFromText;
 
         const $title = text(spec.title);
         const $ylabel = text(spec.ylabel);
