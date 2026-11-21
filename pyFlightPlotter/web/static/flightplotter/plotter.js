@@ -40,6 +40,8 @@ export class FlightPlotter {
      * @param {Dataset|{time, columns, events}} o.data
      * @param {object[]} o.panels      panel specs (see layout.js)
      * @param {object} [o.viewport]    viewport spec (see viewport.js); omit for no 3D view
+     * @param {object} [o.layout]      layout file object to start with, e.g. a saved one; "reset" still returns to
+     *                                 panels/viewport. A malformed one is ignored with a console warning.
      * @param {string} [o.title]
      * @param {boolean} [o.editable]   allow adding/removing panels and signals, and layout import/export (default true)
      * @param {number} [o.ncols]       grid columns for panels without row/col (default 3)
@@ -51,10 +53,18 @@ export class FlightPlotter {
     constructor(container, o) {
         this.ds = o.data instanceof Dataset ? o.data : new Dataset(o.data);
         // own copies, so edits never mutate the host's objects; Craft3D becomes plain geometry
-        const initial = layoutToJSON(o.panels || [], o.viewport || null);
-        this.initialLayout = initial;
-        this.panelSpecs = structuredClone(initial.panels);
-        this.viewportSpec = structuredClone(initial.viewport);
+        this.initialLayout = layoutToJSON(o.panels || [], o.viewport || null);
+        let start = parseLayout(this.initialLayout);
+        if (o.layout) {
+            try {
+                const l = parseLayout(o.layout);
+                start = { panels: l.panels, viewport: l.viewport === undefined ? start.viewport : l.viewport };
+            } catch (e) {
+                console.warn(`flightplotter: ignoring the given layout: ${e.message}`);
+            }
+        }
+        this.panelSpecs = start.panels;
+        this.viewportSpec = start.viewport;
         this.editable = o.editable ?? true;
         this.ncols = o.ncols ?? 3;
         this.layoutName = o.layoutName || "layout";
