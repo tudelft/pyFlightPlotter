@@ -1,5 +1,6 @@
 // FlightPlotter: synchronized time-series panels + 3D viewport in one component.
 import { Dataset } from "./dataset.js";
+import { Session } from "./session.js";
 import { STYLE_KEYS, resolvePanels, placePanels, layoutToJSON, parseLayout, refToText, refFromText } from "./layout.js";
 import { PlotGrid } from "./plots.js";
 import { renderPsd } from "./psd.js";
@@ -38,12 +39,14 @@ export class FlightPlotter {
      * @param {HTMLElement} container
      * @param {object} o
      * @param {Dataset|{time, columns, events}} o.data
-     * @param {object[]} o.panels      panel specs (see layout.js)
-     * @param {object} [o.viewport]    viewport spec (see viewport.js); omit for no 3D view
+     * @param {object[]} [o.panels]    panel specs (see layout.js), for a single tab
+     * @param {{name: string, panels: object[], view?: boolean}[]} [o.tabs]  instead of panels: tabs of panels;
+     *                                 view shows the 3D view in that tab (default: first tab only)
+     * @param {object} [o.viewport]    viewport spec (see viewport.js), shared by all tabs; omit for no 3D view
      * @param {object} [o.layout]      layout file object to start with, e.g. a saved one; "reset" still returns to
-     *                                 panels/viewport. A malformed one is ignored with a console warning.
+     *                                 tabs/panels/viewport. A malformed one is ignored with a console warning.
      * @param {string} [o.title]
-     * @param {boolean} [o.editable]   allow adding/removing panels and signals, and layout import/export (default true)
+     * @param {boolean} [o.editable]   allow editing panels, tabs and the craft, and layout import/export (default true)
      * @param {number} [o.ncols]       grid columns for panels without row/col (default 3)
      * @param {number} [o.rows]        panel rows that fit the height; 0 = all (default 5)
      * @param {"light"|"dark"} [o.theme]
@@ -52,42 +55,60 @@ export class FlightPlotter {
      * @param {{label: string, viewport: object}[]} [o.crafts]  choices for the 3D view's craft selector; each
      *                                 viewport is merged into the viewport spec (typically craft, rotor, rotorSet,
      *                                 surface, surfaceSet), and the craft's name becomes the label
+     * @param {string} [o.popoutUrl]   page that shows a tab in its own window: it loads this library and calls
+     *                                 attachPopout(). Without it, tabs can't be popped out.
+     * @param {Session} [o.session]    (attachPopout) join the session of a view in another window ...
+     * @param {object} [o.tab]         ... showing this one of its tabs
      */
     constructor(container, o) {
-        this.ds = o.data instanceof Dataset ? o.data : new Dataset(o.data);
-        // own copies, so edits never mutate the host's objects; Craft3D becomes plain geometry
-        this.initialLayout = layoutToJSON(o.panels || [], o.viewport || null);
-        let start = parseLayout(this.initialLayout);
-        if (o.layout) {
-            try {
-                const l = parseLayout(o.layout);
-                start = { panels: l.panels, viewport: l.viewport === undefined ? start.viewport : l.viewport };
-            } catch (e) {
-                console.warn(`flightplotter: ignoring the given layout: ${e.message}`);
+        if (o.session) {
+            this.session = o.session;
+            this.fixedTab = o.tab;
+            this.popoutWindow = window;
+        } else {
+            const ds = o.data instanceof Dataset ? o.data : new Dataset(o.data);
+            // own copies, so edits never mutate the host's objects; Craft3D becomes plain geometry
+            const initialLayout = layoutToJSON(o.tabs || [{ name: "Plots", view: true, panels: o.panels || [] }], o.viewport || null);
+            let start = parseLayout(initialLayout);
+            if (o.layout) {
+                try {
+                    const l = parseLayout(o.layout);
+                    start = { tabs: l.tabs, viewport: l.viewport === undefined ? start.viewport : l.viewport };
+                } catch (e) {
+                    console.warn(`flightplotter: ignoring the given layout: ${e.message}`);
+                }
             }
+            this.session = new Session(ds, start, {
+                initialLayout,
+                onLayoutChange: o.onLayoutChange,
+                crafts: (o.crafts || []).map((c) => ({ label: c.label, viewport: JSON.parse(JSON.stringify(c.viewport)) })),
+                editable: o.editable ?? true,
+                layoutName: o.layoutName || "layout",
+                popoutUrl: o.popoutUrl,
+            });
+            this.session.theme = o.theme || "light";
         }
-        this.panelSpecs = start.panels;
-        this.viewportSpec = start.viewport;
-        this.editable = o.editable ?? true;
+        const S = this.session;
+        this.ds = S.ds;
+        this.editable = S.editable;
         this.ncols = o.ncols ?? 3;
-        this.layoutName = o.layoutName || "layout";
-        this.onLayoutChange = o.onLayoutChange || null;
-        this.crafts = (o.crafts || []).map((c) => ({ label: c.label, viewport: JSON.parse(JSON.stringify(c.viewport)) }));
-        this.hoverT = null;
-        this.pinT = null;
-        this.playing = false;
-        this.playT = 0;
-        this.speed = 1;
+        this.activeTab = 0;
         this.follow = false;
         this.viewHidden = new Set();
+        S.attach(this);
         this._buildDom(container, o);
         this.root.querySelector(".fp-rows").value = String(o.rows ?? 5);
-        this.setTheme(o.theme || "light");
+        this._applyTheme();
 
         this._onKey = (e) => this._key(e);
         document.addEventListener("keydown", this._onKey);
         this._onResize = () => this._layoutRows();
         window.addEventListener("resize", this._onResize);
+        if (!this.fixedTab) {
+            // pop-outs can't live without this window
+            this._onPageHide = () => this.session.destroy();
+            window.addEventListener("pagehide", this._onPageHide);
+        }
     }
 
     /** element in the toolbar where the host can put its own controls */
@@ -95,13 +116,79 @@ export class FlightPlotter {
         return this.root.querySelector(".fp-slot");
     }
 
+    /** the tab this view shows: its fixed one in a pop-out, else the active one that isn't popped out */
+    get tab() {
+        if (this.fixedTab) {
+            return this.fixedTab;
+        }
+        const S = this.session;
+        let i = Math.max(0, Math.min(this.activeTab, S.tabs.length - 1));
+        if (S.isPoppedOut(S.tabs[i])) {
+            const j = S.tabs.findIndex((t) => !S.isPoppedOut(t));
+            if (j >= 0) {
+                i = j;
+            }
+        }
+        this.activeTab = i;
+        return S.tabs[i];
+    }
+
+    get panelSpecs() {
+        return this.tab.panels;
+    }
+
+    set panelSpecs(v) {
+        this.tab.panels = v;
+    }
+
+    get viewportSpec() {
+        return this.session.viewportSpec;
+    }
+
+    set viewportSpec(v) {
+        this.session.viewportSpec = v;
+    }
+
+    get crafts() {
+        return this.session.crafts;
+    }
+
+    get initialLayout() {
+        return this.session.initialLayout;
+    }
+
     destroy() {
-        this._stopPlay();
         document.removeEventListener("keydown", this._onKey);
         window.removeEventListener("resize", this._onResize);
+        window.removeEventListener("pagehide", this._onPageHide);
+        if (this.fixedTab) {
+            this.session.detach(this);
+        } else {
+            this.session.views.delete(this);
+            this.session.destroy();
+        }
         this.grid?.destroy();
         this.view?.destroy();
         this.root.remove();
+    }
+
+    /** the session changed: "time" | "range" | "play" | "layout" | "theme" */
+    sessionChanged(kind) {
+        if (kind === "time") {
+            this._showTime();
+        } else if (kind === "range") {
+            this.grid?.setRange(...this.session.visibleRange());
+        } else if (kind === "play") {
+            this._showPlay();
+        } else if (kind === "layout") {
+            if (this.fixedTab && !this.session.tabs.includes(this.fixedTab)) {
+                window.close(); // its tab was closed or replaced
+                return;
+            }
+            this._build();
+        } else if (kind === "theme") {
+            this._applyTheme();
+        }
     }
 
     // ------------------------------------------------------------ dom
@@ -110,7 +197,7 @@ export class FlightPlotter {
         this.$play = btn("▶", "Play / pause (Space)", "fp-play", () => this.togglePlay());
         this.$speed = h(
             "select",
-            { title: "Playback speed", onchange: (e) => (this.speed = +e.target.value) },
+            { title: "Playback speed", onchange: (e) => this.session.setSpeed(+e.target.value) },
             ...[0.1, 0.25, 0.5, 1, 2, 5].map((v) => h("option", { value: v, selected: v === 1 }, `${v}×`)),
         );
         this.$clock = h("span", { class: "fp-clock" });
@@ -140,10 +227,10 @@ export class FlightPlotter {
         const toolbar = h(
             "div",
             { class: "fp-toolbar" },
-            o.title ? h("span", { class: "fp-title", title: o.title }, o.title) : "",
+            (this.$title = h("span", { class: "fp-title", title: o.title || "" }, o.title || "")),
             h("span", { class: "fp-slot" }),
             this.editable ? btn("+ Plot", "Add a plot of any signal", "", () => this._pickSignal()) : "",
-            this.editable ? layoutMenu : "",
+            this.editable && !this.fixedTab ? layoutMenu : "",
             h("span", { class: "fp-sep" }),
             this.$play,
             this.$speed,
@@ -232,7 +319,8 @@ export class FlightPlotter {
         ul.innerHTML = HELP.map((s) => `<li>${s}</li>`).join("");
         this.$help.append(h("header", {}, h("h2", {}, "Controls"), close(this.$help)), ul);
 
-        this.root = h("div", { class: "fp-root" }, toolbar, main, this.$psd, this.$sig, this.$edit, this.$signals, this.$help);
+        this.$tabs = h("div", { class: "fp-tabs" });
+        this.root = h("div", { class: "fp-root" }, toolbar, this.$tabs, main, this.$psd, this.$sig, this.$edit, this.$signals, this.$help);
         container.append(this.root);
     }
 
@@ -259,8 +347,13 @@ export class FlightPlotter {
     }
 
     // ------------------------------------------------------------ theme
-    /** "light" | "dark"; rebuilds the plots since canvas colors are baked in */
+    /** "light" | "dark", for every view of this log; rebuilds the plots since canvas colors are baked in */
     setTheme(theme) {
+        this.session.setTheme(theme);
+    }
+
+    _applyTheme() {
+        const theme = this.session.theme;
         this.root.classList.toggle("fp-dark", theme === "dark");
         const cs = getComputedStyle(this.root);
         const v = (name) => cs.getPropertyValue(name).trim();
@@ -274,29 +367,23 @@ export class FlightPlotter {
             event: v("--fp-event"),
             gridLines: v("--fp-grid3d"),
         };
-        this._build(true);
+        this._build();
     }
 
     // ------------------------------------------------------------ build
-    _build(keepRange = false) {
-        const range = keepRange && this.grid ? this.grid.range : null;
+    _build() {
+        const S = this.session;
+        this._renderTabs();
+        this._applyTabView();
         const panels = placePanels(resolvePanels(this.ds, this.panelSpecs), this.ncols);
         this.root.classList.toggle("fp-noview", !this.viewportSpec);
         this._syncCraftSel();
         this.grid?.destroy();
         this.grid = new PlotGrid(this.$grid, this.ds, panels, this.theme, {
             editable: this.editable,
-            onHover: (t) => {
-                this.hoverT = t;
-                if (!this.playing) {
-                    this._showTime();
-                }
-            },
-            onClick: (t) => {
-                this._stopPlay();
-                this.pinT = t;
-                this._showTime();
-            },
+            onHover: (t) => S.setHover(t),
+            onClick: (t) => S.setPin(t),
+            onRange: (a, b) => S.setRange(a, b, this),
             onPsd: (P) => {
                 this._psdPanel = P;
                 this.$psd.showModal();
@@ -304,7 +391,7 @@ export class FlightPlotter {
             },
             onRemove: (P) => {
                 this.panelSpecs = this.panelSpecs.filter((c) => c !== P.spec.src);
-                this._build(true);
+                this._build();
                 this._layoutChanged();
             },
             onAddSignal: (P) => this._pickSignal(P.spec.src),
@@ -323,13 +410,13 @@ export class FlightPlotter {
                     a.row = to.row;
                     a.col = to.col;
                 }
-                this._build(true);
+                this._build();
                 this._layoutChanged();
             },
         });
         this._layoutRows();
-        if (range) {
-            this.grid.setRange(...range);
+        if (S.range) {
+            this.grid.setRange(...S.range);
         }
         this._buildView();
         const d = this.ds;
@@ -367,12 +454,116 @@ export class FlightPlotter {
         }
     }
 
-    _toggleView() {
-        const hide = !this.$view.classList.contains("fp-hidden");
+    /** show or hide the 3D view as the shown tab wants */
+    _applyTabView() {
+        const hide = !this.tab.view;
         this.$view.classList.toggle("fp-hidden", hide);
         this.$split.hidden = hide;
         this.$view3d.classList.toggle("fp-on", !hide);
+    }
+
+    _toggleView() {
+        this.tab.view = !this.tab.view;
+        this._applyTabView();
         this._buildView();
+        this._layoutChanged();
+    }
+
+    // ------------------------------------------------------------ tabs
+    _renderTabs() {
+        const S = this.session;
+        if (this.fixedTab) {
+            this.$tabs.hidden = true;
+            this.$title.textContent = this.$title.title = this.fixedTab.name;
+            document.title = this.fixedTab.name;
+            return;
+        }
+        const shown = this.tab;
+        this.$tabs.hidden = S.tabs.length < 2 && !this.editable && !S.popoutUrl;
+        const btn = (text, title, onclick, cls = "") => h("button", { class: cls, title, onclick }, text);
+        this.$tabs.replaceChildren(
+            ...S.tabs.map((t, i) => {
+                const popped = S.isPoppedOut(t);
+                const name = btn(
+                    t.name,
+                    popped ? "In its own window; click to bring it to the front" : this.editable ? "Double click to rename" : "",
+                    () => (popped ? S.popOut(t) : this.showTab(i)),
+                    "fp-tabname",
+                );
+                if (this.editable) {
+                    name.addEventListener("dblclick", () => this._renameTab(t, name));
+                }
+                return h(
+                    "div",
+                    { class: `fp-tab${t === shown && !popped ? " fp-active" : ""}${popped ? " fp-popped" : ""}` },
+                    name,
+                    S.popoutUrl && !popped ? btn("⧉", "Open this tab in a new window", () => this._popOut(t)) : "",
+                    this.editable && S.tabs.length > 1 ? btn("×", "Close this tab", () => this._closeTab(t)) : "",
+                );
+            }),
+            this.editable ? btn("+", "New tab", () => this._addTab(), "fp-tabadd") : "",
+        );
+    }
+
+    /** show tab i (main view) */
+    showTab(i) {
+        // no rebuild for the shown tab: it would replace the tab button under a double click
+        if (this.session.tabs[i] === this.tab) {
+            return;
+        }
+        this.activeTab = i;
+        this._build();
+    }
+
+    _addTab() {
+        const S = this.session;
+        S.tabs.push({ name: `Tab ${S.tabs.length + 1}`, view: false, panels: [] });
+        this.activeTab = S.tabs.length - 1;
+        this._build();
+        this._layoutChanged();
+    }
+
+    _closeTab(t) {
+        const S = this.session;
+        if (t.panels.length && !confirm(`Close "${t.name}" and its ${t.panels.length} plot(s)?`)) {
+            return;
+        }
+        S.popouts.get(t)?.close();
+        S.popouts.delete(t);
+        const i = S.tabs.indexOf(t);
+        S.tabs.splice(i, 1);
+        if (this.activeTab >= i) {
+            this.activeTab = Math.max(0, this.activeTab - 1);
+        }
+        this._build();
+        this._layoutChanged();
+    }
+
+    _renameTab(t, el) {
+        const input = h("input", { value: t.name, class: "fp-tabinput" });
+        const done = (commit) => {
+            if (commit && input.value.trim()) {
+                t.name = input.value.trim();
+                this._layoutChanged();
+            }
+            this._renderTabs();
+        };
+        input.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                done(true);
+            } else if (e.key === "Escape") {
+                done(false);
+            }
+        });
+        input.addEventListener("blur", () => done(true), { once: true });
+        el.replaceWith(input);
+        input.select();
+    }
+
+    _popOut(t) {
+        if (!this.session.popOut(t)) {
+            alert("The browser blocked the new window. Allow pop-ups for this site and try again.");
+        }
     }
 
     _layoutRows() {
@@ -388,98 +579,37 @@ export class FlightPlotter {
     }
 
     // ------------------------------------------------------------ time
-    _currentT() {
-        if (this.playing) {
-            return this.playT;
-        }
-        return this.hoverT ?? this.pinT ?? this.ds.t0;
-    }
-
     /** move the pinned cursor to time t (seconds) */
     setTime(t) {
-        this._stopPlay();
-        this.pinT = t;
-        this._showTime();
+        this.session.setPin(t);
+    }
+
+    togglePlay() {
+        this.session.togglePlay();
+    }
+
+    _showPlay() {
+        const S = this.session;
+        this.$play.textContent = S.playing ? "❚❚" : "▶";
+        this.$play.classList.toggle("fp-on", S.playing);
+        this.$speed.value = String(S.speed);
     }
 
     _showTime() {
-        const t = this._currentT();
+        const S = this.session;
+        const t = S.currentT();
         this.view?.setTime(t);
-        const head = this.playing ? this.playT : this.pinT;
+        const head = S.playing ? S.playT : S.pinT;
         this.grid?.setPlayhead(head);
         const c = this.$clock;
-        if (this.pinT != null && this.hoverT != null && !this.playing) {
-            const dt = this.hoverT - this.pinT;
-            c.innerHTML = `t ${this.hoverT.toFixed(3)} s <span class="fp-pin">Δ ${dt >= 0 ? "+" : ""}${dt.toFixed(3)}</span>`;
+        if (S.pinT != null && S.hoverT != null && !S.playing) {
+            const dt = S.hoverT - S.pinT;
+            c.innerHTML = `t ${S.hoverT.toFixed(3)} s <span class="fp-pin">Δ ${dt >= 0 ? "+" : ""}${dt.toFixed(3)}</span>`;
         } else if (head != null) {
             c.innerHTML = `<span class="fp-pin">t ${head.toFixed(3)} s</span>`;
         } else {
             c.textContent = `t ${t.toFixed(3)} s`;
         }
-    }
-
-    togglePlay() {
-        if (this.playing) {
-            this._stopPlay();
-            return;
-        }
-        let t = this.pinT ?? this.hoverT ?? this.grid.range[0];
-        if (t >= this.ds.t1) {
-            t = this.grid.range[0];
-        }
-        this.playT = t;
-        this.playing = true;
-        this._last = performance.now();
-        this.$play.textContent = "❚❚";
-        this.$play.classList.add("fp-on");
-        this._raf = requestAnimationFrame((now) => this._tick(now));
-    }
-
-    _stopPlay() {
-        if (!this.playing) {
-            return;
-        }
-        cancelAnimationFrame(this._raf);
-        this.playing = false;
-        this.pinT = this.playT;
-        this.$play.textContent = "▶";
-        this.$play.classList.remove("fp-on");
-        this._showTime();
-    }
-
-    _tick(now) {
-        if (!this.playing) {
-            return;
-        }
-        // cap the step so a stalled frame does not jump ahead
-        const dt = Math.min(0.1, (now - this._last) / 1000);
-        this._last = now;
-        this.playT += dt * this.speed;
-        if (this.playT >= this.ds.t1) {
-            this.playT = this.ds.t1;
-            this._stopPlay();
-            return;
-        }
-        const [a, b] = this.grid.range;
-        if (this.playT > b || this.playT < a) {
-            const span = b - a;
-            this.grid.setRange(this.playT - 0.1 * span, this.playT + 0.9 * span);
-        }
-        this._showTime();
-        this._raf = requestAnimationFrame((n) => this._tick(n));
-    }
-
-    _step(dir, big) {
-        this._stopPlay();
-        const ds = this.ds;
-        const t = this.pinT ?? this.hoverT ?? this.grid.range[0];
-        if (big) {
-            this.pinT = Math.min(ds.t1, Math.max(ds.t0, t + dir * 0.1));
-        } else {
-            this.pinT = ds.t[Math.min(ds.n - 1, Math.max(0, ds.indexAt(t) + dir))];
-        }
-        this.hoverT = null;
-        this._showTime();
     }
 
     _key(e) {
@@ -490,43 +620,37 @@ export class FlightPlotter {
         if (e.target.closest?.("input, select, textarea, dialog, [contenteditable]")) {
             return;
         }
+        const S = this.session;
         if (e.code === "Space") {
             e.preventDefault();
-            this.togglePlay();
+            S.togglePlay();
         } else if (e.key === "Escape") {
-            this._stopPlay();
-            this.pinT = null;
-            this._showTime();
+            S.unpin();
         } else if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
             e.preventDefault();
-            this._step(e.key === "ArrowRight" ? 1 : -1, e.shiftKey);
+            S.step(e.key === "ArrowRight" ? 1 : -1, e.shiftKey);
         }
     }
 
     // ------------------------------------------------------------ layout
-    /** the current panels and viewport as plain JSON (see layout.js), including the user's edits */
+    /** the current tabs and viewport as plain JSON (see layout.js), including the user's edits */
     getLayout() {
-        return layoutToJSON(this.panelSpecs, this.viewportSpec);
+        return this.session.getLayout();
     }
 
     /**
-     * Replace the panels and, if the layout has a "viewport" key, the 3D view. The data stays.
+     * Replace the tabs and, if the layout has a "viewport" key, the 3D view. The data stays.
      * Throws an Error naming the offending entry if the layout is malformed.
      */
     setLayout(layout) {
-        const l = parseLayout(layout);
-        this.panelSpecs = l.panels;
-        if (l.viewport !== undefined) {
-            this.viewportSpec = l.viewport;
-        }
-        this._build(true);
-        this._layoutChanged();
+        this.activeTab = 0;
+        this.session.setLayout(layout);
     }
 
     /** download getLayout() as <layoutName>.json */
     exportLayout() {
         const blob = new Blob([JSON.stringify(this.getLayout(), null, 2)], { type: "application/json" });
-        const a = h("a", { href: URL.createObjectURL(blob), download: `${this.layoutName}.json` });
+        const a = h("a", { href: URL.createObjectURL(blob), download: `${this.session.layoutName}.json` });
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 0);
     }
@@ -545,7 +669,7 @@ export class FlightPlotter {
     }
 
     _layoutChanged() {
-        this.onLayoutChange?.(this.getLayout());
+        this.session.layoutChanged(this);
     }
 
     /** text input for a column reference, with signal suggestions and a mark when the log lacks it */
@@ -716,7 +840,7 @@ export class FlightPlotter {
                 series: series.map((s, i) => ({ ...s, label: s.label || `series ${i + 1}` })),
             });
             this.$edit.close();
-            this._build(true);
+            this._build();
             this._layoutChanged();
         };
 
@@ -767,7 +891,7 @@ export class FlightPlotter {
             } else {
                 this.panelSpecs.push({ title: n, custom: true, styles: [null, null, null], series: [{ label: n, solid: n }] });
             }
-            this._build(true);
+            this._build();
             this._layoutChanged();
             requestAnimationFrame(() => this.$gridwrap.scrollTo({ top: this.$gridwrap.scrollHeight, behavior: "smooth" }));
         };
@@ -790,6 +914,8 @@ export class FlightPlotter {
         this.$sigSearch.oninput = render;
         this.$sigSearch.onkeydown = (e) => {
             if (e.key === "Enter") {
+                // else the keypress re-clicks "+ Plot", which gets the focus back when the dialog closes
+                e.preventDefault();
                 const f = this.$sigList.querySelector(".fp-sel");
                 if (f) {
                     choose(f.textContent);
@@ -801,4 +927,29 @@ export class FlightPlotter {
         this.$sig.showModal();
         this.$sigSearch.focus();
     }
+}
+
+/**
+ * For the page a pop-out window loads (FlightPlotter's popoutUrl): show the tab it was opened for, attached to
+ * the opener's session. Returns the view, or null if this page wasn't opened as a pop-out.
+ * @param {HTMLElement} container
+ */
+export function attachPopout(container) {
+    const id = new URLSearchParams(location.search).get("fp-popout");
+    if (!id) {
+        return null;
+    }
+    let reg = null;
+    try {
+        reg = window.opener?.__flightplotterPopouts?.[id];
+    } catch {
+        // opener navigated to another origin
+    }
+    if (!reg || !reg.session.tabs.includes(reg.tab)) {
+        container.textContent = "This window has lost its main window. Close it and open the tab again from there.";
+        return null;
+    }
+    const fp = new FlightPlotter(container, { session: reg.session, tab: reg.tab, rows: 0 });
+    window.addEventListener("pagehide", () => fp.destroy());
+    return fp;
 }

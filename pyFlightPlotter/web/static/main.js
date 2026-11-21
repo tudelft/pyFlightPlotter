@@ -1,6 +1,6 @@
 // Standalone page for pyFlightPlotter.web.WebPlotter: index.html?src=<session>
 // loads <session>/meta.json (layout, viewport, column table) and <session>/data.bin.
-import { FlightPlotter } from "./flightplotter/index.js";
+import { FlightPlotter, attachPopout } from "./flightplotter/index.js";
 
 const msg = document.getElementById("msg");
 
@@ -37,7 +37,11 @@ async function load(src) {
 }
 
 const src = new URLSearchParams(location.search).get("src");
-if (!src) {
+if (new URLSearchParams(location.search).has("fp-popout")) {
+    // a tab popped out of the page that opened this one; it has the data already
+    msg.remove();
+    attachPopout(document.body);
+} else if (!src) {
     msg.textContent = "Open this page through pyFlightPlotter.web.WebPlotter.show().";
 } else {
     try {
@@ -47,13 +51,14 @@ if (!src) {
         const dark = matchMedia("(prefers-color-scheme: dark)");
         const fp = new FlightPlotter(document.body, {
             data: { time, columns, events: meta.events || [] },
-            panels: meta.panels || [],
+            tabs: meta.tabs || [{ name: "Plots", view: true, panels: meta.panels || [] }],
             viewport: meta.viewport || undefined,
             title: meta.title,
             editable: meta.editable ?? true,
             ncols: meta.ncols ?? 3,
             rows: meta.rows ?? 5,
             theme: meta.theme ?? (dark.matches ? "dark" : "light"),
+            popoutUrl: location.pathname,
         });
         if (!meta.theme) {
             dark.addEventListener("change", (e) => fp.setTheme(e.matches ? "dark" : "light"));

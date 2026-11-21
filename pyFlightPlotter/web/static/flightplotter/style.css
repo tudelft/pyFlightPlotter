@@ -528,3 +528,56 @@
 .fp-root [hidden] {
     display: none !important;
 }
+
+/* tabs */
+.fp-tabs {
+    flex: none;
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    padding: 4px 10px 0;
+    background: var(--fp-panel);
+    border-bottom: 1px solid var(--fp-border);
+    overflow-x: auto;
+    white-space: nowrap;
+}
+.fp-tab {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--fp-border);
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    background: var(--fp-bg);
+    margin-bottom: -1px;
+}
+.fp-tab.fp-active {
+    background: var(--fp-panel);
+    border-bottom: 1px solid var(--fp-panel);
+    font-weight: 600;
+}
+.fp-root .fp-tab button,
+.fp-root .fp-tabs > .fp-tabadd {
+    border: none;
+    border-radius: 6px 6px 0 0;
+    background: transparent;
+    padding: 3px 8px;
+}
+.fp-root .fp-tab button:not(.fp-tabname) {
+    color: var(--fp-muted);
+    padding: 3px 5px;
+}
+.fp-root .fp-tab button:not(.fp-tabname):hover {
+    color: var(--fp-text);
+}
+.fp-tab.fp-popped .fp-tabname {
+    font-style: italic;
+    color: var(--fp-muted);
+}
+.fp-tab.fp-popped .fp-tabname::after {
+    content: " ↗";
+}
+.fp-root .fp-tabinput {
+    width: 140px;
+    padding: 2px 6px;
+    margin: 1px 4px;
+}

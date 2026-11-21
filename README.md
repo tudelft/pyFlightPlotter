@@ -175,29 +175,40 @@ const fp = new FlightPlotter(element, {
     panels: [{ title: "Position", ylabel: "[m]", styles: [null, "Estimate", null],
                series: [{ label: "X", solid: "pos[0]" }] }],
     viewport: { craft: quadrotor(), att: ["q0", "q1", "q2", "q3"], pos: ["pos[0]", "pos[1]", "pos[2]"] },
-    editable: false,   // no "+ Plot", panel editing or layout import/export
+    editable: false,   // no editing, tabs only to switch, no layout import/export
     theme: "dark",
 });
 ```
 
-### Layouts
+### Layouts, tabs and windows
 
-The data goes in once; the panels and the 3D view can change afterwards. With `editable` (the default), you can add
-plots and signals, remove panels, and use **Layout ⤓ / ⤒ / ↺** in the toolbar to export the layout as JSON, import
-one, or go back to the initial layout. The file holds no data, and column references that a log lacks are skipped,
-so one layout works across logs:
+The data goes in once; the panels and the 3D view can change afterwards. With `editable` (the default) you can:
+
+- add plots and signals, edit a panel (✎ or double-click its title: titles, y range, line styles, series with
+  `"name * scale"`), drag a panel by its header onto another (swap) or an empty cell (move), and remove it;
+- organise panels in **tabs** (+ to add, double-click to rename, × to close). Each tab can show the 3D view or not
+  (the **3D** button; on by default in the first tab only);
+- pick the craft in the 3D view (from the host's `crafts` option) and set each rotor's spin and signals (**Rotors…**);
+- **⧉** opens a tab in its own window, which follows the main window's cursor, zoom and playback and returns
+  to the tab bar when closed. This needs a `popoutUrl`: a page that loads the library and calls `attachPopout()`
+  (the page served from Python does this itself);
+- export the layout as JSON, import one, or go back to the initial layout (**Layout ⤓ / ⤒ / ↺**).
+
+The layout file holds no data, and column references that a log lacks are skipped, so one layout works across logs:
 
 ```json
-{ "format": "flightplotter-layout", "version": 1,
-  "panels": [{ "title": "Position", "ylabel": "[m]", "styles": [null, "Estimate", null],
-               "series": [{ "label": "X", "solid": "pos[0]" }, { "label": "Y", "solid": ["pos[1]", -1] }] }],
+{ "format": "flightplotter-layout", "version": 2,
+  "tabs": [{ "name": "Attitude", "view": true,
+             "panels": [{ "title": "Rates", "ylabel": "[rad/s]", "styles": [null, "Estimate", "Setpoint"],
+                          "series": [{ "label": "roll", "solid": "gyro[0]", "dashed": ["gyroSp[0]", 1] }] }] }],
   "viewport": { "craft": { "body": [], "rotors": [], "surfaces": [] }, "att": ["q0", "q1", "q2", "q3"] } }
 ```
 
-From code: `fp.getLayout()`, `fp.setLayout(layout)` (throws on a malformed layout, naming the entry), and the
-`onLayoutChange(layout)` option, e.g. to persist the user's layout. In Python, `wp.set_layout("layout.json")` and
-`wp.layout()` do the same before `show()`. A layout without a `"viewport"` key keeps the current 3D view;
-`"viewport": null` removes it.
+Version 1 files (`{ "panels": [...], "viewport": ... }`) still load, as one tab. From code: `fp.getLayout()`,
+`fp.setLayout(layout)` (throws on a malformed layout, naming the entry), the `layout` option to start from a saved
+layout, and `onLayoutChange(layout)` to persist the user's. In Python, `wp.add_tab("Name", view=False)` starts a tab
+for the following `add_panel` calls, and `wp.set_layout("layout.json")` / `wp.layout()` read and write the same
+format. A layout without a `"viewport"` key keeps the current 3D view; `"viewport": null` removes it.
 
 It needs `uplot` and `three` resolvable by the bundler; the page served from Python uses the copies in
 `pyFlightPlotter/web/static/vendor/` through an import map.

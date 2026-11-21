@@ -9,8 +9,11 @@
 // This mirrors FlightPlotterBase._plot_timeseries: per series up to three line
 // styles; light = thin and faint, solid = main, dashed = setpoint/reference.
 //
-// A layout file holds the panels and the 3D view (viewport.js), without data:
-//   { format: "flightplotter-layout", version: 1, panels: [panel spec, ...], viewport: {...} | null }
+// A layout file holds tabs of panels and the 3D view (viewport.js), without data:
+//   { format: "flightplotter-layout", version: 2,
+//     tabs: [{ name, view: bool, panels: [panel spec, ...] }],   view: show the 3D view in this tab
+//     viewport: {...} | null }                                     shared by all tabs
+// Version 1 files ({ panels, viewport }) read as one tab.
 // Column references that a dataset lacks are skipped, so one layout can serve logs with different signals.
 
 export const STYLE_KEYS = ["light", "solid", "dashed"];
@@ -107,16 +110,21 @@ export function placePanels(panels, ncols = 3) {
 }
 
 export const LAYOUT_FORMAT = "flightplotter-layout";
-export const LAYOUT_VERSION = 1;
+export const LAYOUT_VERSION = 2;
 
-/** panels + viewport as a layout file object; plain JSON, so Craft3D becomes its geometry */
-export function layoutToJSON(panels, viewport) {
+/** tabs + viewport as a layout file object; plain JSON, so Craft3D becomes its geometry */
+export function layoutToJSON(tabs, viewport) {
     const strip = (p) => {
         const { src, ...rest } = p; // eslint-disable-line no-unused-vars
         return rest;
     };
     return JSON.parse(
-        JSON.stringify({ format: LAYOUT_FORMAT, version: LAYOUT_VERSION, panels: panels.map(strip), viewport: viewport ?? null }),
+        JSON.stringify({
+            format: LAYOUT_FORMAT,
+            version: LAYOUT_VERSION,
+            tabs: tabs.map((t) => ({ name: t.name, view: !!t.view, panels: t.panels.map(strip) })),
+            viewport: viewport ?? null,
+        }),
     );
 }
 
@@ -124,7 +132,7 @@ const VIEW_VECTORS = ["att", "attSet", "attMeas", "pos", "posSet", "posMeas", "v
 const VIEW_ACTUATORS = ["rotor", "rotorSet", "surface", "surfaceSet"];
 
 /**
- * Check a layout file object and return a copy: {panels, viewport}, where viewport is undefined if the
+ * Check a layout file object and return a copy: {tabs, viewport}, where viewport is undefined if the
  * file has no "viewport" key (keep the current one) and null if it is null (no 3D view).
  * Throws an Error that names the offending entry, e.g. "panels[2].series[0].solid: ...".
  */
@@ -156,11 +164,19 @@ export function parseLayout(x) {
     if (x.version !== undefined && !(isNum(x.version) && x.version <= LAYOUT_VERSION)) {
         fail("version", `this flightplotter reads layout version ${LAYOUT_VERSION} or older`);
     }
-    if (!Array.isArray(x.panels)) {
-        fail("panels", "expected a list of panels");
+    let tabs;
+    if (x.tabs !== undefined) {
+        if (!Array.isArray(x.tabs) || !x.tabs.length) {
+            fail("tabs", "expected a non-empty list of tabs");
+        }
+        tabs = x.tabs;
+    } else if (Array.isArray(x.panels)) {
+        tabs = [{ name: "Plots", view: true, panels: x.panels }];
+    } else {
+        fail("tabs", "expected a list of tabs (or, in version 1 files, panels)");
     }
-    x.panels.forEach((p, i) => {
-        const at = `panels[${i}]`;
+    const checkPanels = (panels, base) => panels.forEach((p, i) => {
+        const at = `${base}[${i}]`;
         if (!isObj(p)) {
             fail(at, "expected an object");
         }
@@ -183,6 +199,18 @@ export function parseLayout(x) {
             optional(s.color, (v) => isStr(v) || Number.isInteger(v), `${sat}.color`, 'a color index or "#rrggbb"');
             STYLE_KEYS.forEach((k) => checkRef(s[k], `${sat}.${k}`));
         });
+    });
+    tabs.forEach((t, ti) => {
+        const at = x.tabs ? `tabs[${ti}]` : "layout";
+        if (!isObj(t)) {
+            fail(at, "expected an object");
+        }
+        optional(t.name, isStr, `${at}.name`, "a string");
+        optional(t.view, (v) => typeof v === "boolean", `${at}.view`, "true or false");
+        if (!Array.isArray(t.panels)) {
+            fail(`${at}.panels`, "expected a list of panels");
+        }
+        checkPanels(t.panels, x.tabs ? `${at}.panels` : "panels");
     });
 
     const v = x.viewport;
@@ -222,5 +250,8 @@ export function parseLayout(x) {
         }
         optional(v.interpolation, (y) => y === "previous" || y === "linear", "viewport.interpolation", '"previous" or "linear"');
     }
-    return { panels: structuredClone(x.panels), viewport: v === undefined ? undefined : structuredClone(v) };
+    return {
+        tabs: tabs.map((t, i) => ({ name: t.name || `Tab ${i + 1}`, view: t.view ?? i === 0, panels: structuredClone(t.panels) })),
+        viewport: v === undefined ? undefined : structuredClone(v),
+    };
 }
