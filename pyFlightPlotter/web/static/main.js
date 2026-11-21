@@ -50,7 +50,7 @@ if (new URLSearchParams(location.search).has("fp-popout")) {
         msg.remove();
         const dark = matchMedia("(prefers-color-scheme: dark)");
         const fp = new FlightPlotter(document.body, {
-            data: { time, columns, events: meta.events || [] },
+            data: { time, columns, events: meta.events || [], descriptions: meta.descriptions || {} },
             tabs: meta.tabs || [{ name: "Plots", view: true, panels: meta.panels || [] }],
             viewport: meta.viewport || undefined,
             title: meta.title,

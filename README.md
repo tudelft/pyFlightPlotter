@@ -159,7 +159,8 @@ wp.add_event(5.0, "takeoff")
 wp.show()
 ```
 
-Column references in panels and the viewport are names, `(name, scale)` tuples, or arrays. A complete example is in
+Column references in panels and the viewport are names, `(name, scale)` tuples, or arrays. `add_signal(..., description="...")`
+(or `data.descriptions` in JS) explains a signal, e.g. a derived one, in tooltips and the signal picker. A complete example is in
 `docs/examples/web_example.py`.
 
 The JS part is a standalone ES module package (`package.json` at the repository root, sources in

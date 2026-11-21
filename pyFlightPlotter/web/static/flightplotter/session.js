@@ -170,8 +170,10 @@ export class Session {
         return this.hoverT ?? this.pinT ?? this.ds.t0;
     }
 
-    setHover(t) {
+    /** hover at time t (null: none) in view `from`; the other views draw their cursor there */
+    setHover(t, from = null) {
         this.hoverT = t;
+        this.hoverFrom = from;
         if (!this.playing) {
             this._notify("time");
         }

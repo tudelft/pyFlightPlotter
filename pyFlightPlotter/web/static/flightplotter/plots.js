@@ -207,7 +207,12 @@ export class PlotGrid {
             chip.className = "fp-chip";
             chip.style.setProperty("--fp-c", color);
             chip.title = STYLE_KEYS.filter((k) => s[k])
-                .map((k) => `${spec.styles[STYLE_KEYS.indexOf(k)] || k}: ${s[k].col}${s[k].scale !== 1 ? ` × ${+s[k].scale.toPrecision(4)}` : ""}`)
+                .map((k) => {
+                    const r = s[k];
+                    const line = `${spec.styles[STYLE_KEYS.indexOf(k)] || k}: ${r.col}${r.scale !== 1 ? ` × ${+r.scale.toPrecision(4)}` : ""}`;
+                    const d = ds.describe(r.col);
+                    return d ? `${line}\n    ${d}` : line;
+                })
                 .join("\n");
             chip.innerHTML = "<i></i><span class=\"fp-lbl\"></span>";
             chip.querySelector(".fp-lbl").textContent = s.label;
@@ -481,10 +486,26 @@ export class PlotGrid {
         this.setRange(a, b);
     }
 
+    /**
+     * Draw the cursor at time t (null: hide it) for hover in another window, without reporting it as hover here.
+     * uPlot's cursor sync covers one window only: each window runs its own copy of uPlot.
+     */
+    showCursor(t) {
+        const P = this.panels[0];
+        if (!P || this.hovered || t === this._remoteT) {
+            return;
+        }
+        this._remoteT = t;
+        const u = P.u;
+        // the other panels follow through uPlot's sync
+        u.setCursor(t == null ? { left: -10, top: -10 } : { left: u.valToPos(t, "x"), top: u.over.clientHeight / 2 });
+    }
+
     _onCursor(P, u) {
         const idx = u.cursor.idx;
         const inside = idx != null && u.cursor.left >= 0;
         if (this.hovered === P) {
+            this._remoteT = undefined;
             this.cb.onHover?.(inside ? u.posToVal(u.cursor.left, "x") : null);
         }
         if (inside) {

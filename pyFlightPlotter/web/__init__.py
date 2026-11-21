@@ -93,20 +93,24 @@ class WebPlotter:
         self.options = {"editable": bool(editable), "ncols": int(ncols), "rows": int(rows), "theme": theme}
         self.signals = {}
         self.dtypes = {}
+        self.descriptions = {}
         self.tabs = [{"name": "Plots", "view": True, "panels": []}]
         self.viewport = None
         self.events = []
         self._anon = 0
 
     # ------------------------------------------------------------ data
-    def add_signal(self, name, values, float64=False):
+    def add_signal(self, name, values, float64=False, description=None):
         """Add a signal (same length as time). float64 keeps full precision,
-        e.g. for bit masks or GPS coordinates; the default sends float32."""
+        e.g. for bit masks or GPS coordinates; the default sends float32.
+        description: how the signal came about, shown in tooltips (e.g. for derived signals)."""
         values = np.asarray(values, dtype=float).ravel()
         if values.size != self.n:
             raise ValueError(f"signal '{name}' has {values.size} samples, time has {self.n}")
         self.signals[name] = values
         self.dtypes[name] = "f8" if float64 else "f4"
+        if description:
+            self.descriptions[name] = str(description)
         return name
 
     def add_signals(self, data, float64=()):
@@ -277,6 +281,7 @@ class WebPlotter:
             off += len(b)
         meta = {"title": self.name, "n": self.n, "time": TIME, "columns": meta_cols,
                 "tabs": self.tabs, "viewport": self.viewport, "events": self.events,
+                "descriptions": self.descriptions,
                 **self.options}
         return json.dumps(_jsonable(meta)).encode(), b"".join(chunks)
 

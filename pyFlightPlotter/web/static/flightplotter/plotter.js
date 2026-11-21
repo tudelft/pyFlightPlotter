@@ -381,7 +381,7 @@ export class FlightPlotter {
         this.grid?.destroy();
         this.grid = new PlotGrid(this.$grid, this.ds, panels, this.theme, {
             editable: this.editable,
-            onHover: (t) => S.setHover(t),
+            onHover: (t) => S.setHover(t, this),
             onClick: (t) => S.setPin(t),
             onRange: (a, b) => S.setRange(a, b, this),
             onPsd: (P) => {
@@ -605,6 +605,9 @@ export class FlightPlotter {
         this.view?.setTime(t);
         const head = S.playing ? S.playT : S.pinT;
         this.grid?.setPlayhead(head);
+        if (S.hoverFrom !== this) {
+            this.grid?.showCursor(S.playing ? null : S.hoverT);
+        }
         const c = this.$clock;
         if (S.pinT != null && S.hoverT != null && !S.playing) {
             const dt = S.hoverT - S.pinT;
@@ -686,7 +689,7 @@ export class FlightPlotter {
     _refInput(r) {
         const names = this.ds.names();
         if (this.$signals.childElementCount !== names.length) {
-            this.$signals.replaceChildren(...names.map((n) => h("option", { value: n })));
+            this.$signals.replaceChildren(...names.map((n) => h("option", { value: n, label: this.ds.describe(n) || undefined })));
         }
         const i = h("input", { value: refToText(r), autocomplete: "off", list: this.$signals.id, class: "fp-ref", placeholder: "—" });
         const mark = () => {
@@ -923,7 +926,10 @@ export class FlightPlotter {
                 if (q.length && !q.every((w) => l.includes(w))) {
                     continue;
                 }
-                this.$sigList.append(h("div", { onclick: () => choose(n) }, n));
+                const d = this.ds.describe(n);
+                this.$sigList.append(
+                    h("div", { onclick: () => choose(n), "data-name": n, title: d || undefined }, n, d ? h("span", { class: "fp-desc" }, d) : ""),
+                );
                 if (++shown > 400) {
                     break;
                 }
@@ -937,7 +943,7 @@ export class FlightPlotter {
                 e.preventDefault();
                 const f = this.$sigList.querySelector(".fp-sel");
                 if (f) {
-                    choose(f.textContent);
+                    choose(f.dataset.name);
                 }
             }
         };
