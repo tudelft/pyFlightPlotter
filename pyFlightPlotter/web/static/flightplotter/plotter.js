@@ -517,7 +517,11 @@ export class FlightPlotter {
 
     _addTab() {
         const S = this.session;
-        S.tabs.push({ name: `Tab ${S.tabs.length + 1}`, view: false, panels: [] });
+        let n = S.tabs.length + 1;
+        while (S.tabs.some((t) => t.name === `Tab ${n}`)) {
+            n++;
+        }
+        S.tabs.push({ name: `Tab ${n}`, view: false, panels: [] });
         this.activeTab = S.tabs.length - 1;
         this._build();
         this._layoutChanged();
@@ -617,7 +621,7 @@ export class FlightPlotter {
         if (!this.root.isConnected || this.root.offsetParent === null) {
             return;
         }
-        if (e.target.closest?.("input, select, textarea, dialog, [contenteditable]")) {
+        if (e.target.closest?.("input, select, textarea, dialog, [contenteditable], [role=combobox], [role=listbox]")) {
             return;
         }
         const S = this.session;
@@ -643,6 +647,7 @@ export class FlightPlotter {
      * Throws an Error naming the offending entry if the layout is malformed.
      */
     setLayout(layout) {
+        parseLayout(layout); // throws before anything changes
         this.activeTab = 0;
         this.session.setLayout(layout);
     }
@@ -672,6 +677,11 @@ export class FlightPlotter {
         this.session.layoutChanged(this);
     }
 
+    /** typed text -> column reference; a signal named like "a*2" stays a name */
+    _parseRef(t) {
+        return this.ds.has(t.trim()) ? t.trim() : refFromText(t);
+    }
+
     /** text input for a column reference, with signal suggestions and a mark when the log lacks it */
     _refInput(r) {
         const names = this.ds.names();
@@ -680,7 +690,7 @@ export class FlightPlotter {
         }
         const i = h("input", { value: refToText(r), autocomplete: "off", list: this.$signals.id, class: "fp-ref", placeholder: "—" });
         const mark = () => {
-            const ref = refFromText(i.value);
+            const ref = this._parseRef(i.value);
             const col = Array.isArray(ref) ? ref[0] : ref;
             const missing = col != null && !this.ds.has(col);
             i.classList.toggle("fp-missing", missing);
@@ -757,8 +767,8 @@ export class FlightPlotter {
             this.viewportSpec = {
                 ...spec,
                 craft,
-                rotor: pad(spec.rotor).map((e, i) => withThrust(e, refFromText(rows[i].est.value))),
-                rotorSet: pad(spec.rotorSet).map((e, i) => withThrust(e, refFromText(rows[i].set.value))),
+                rotor: pad(spec.rotor).map((e, i) => withThrust(e, this._parseRef(rows[i].est.value))),
+                rotorSet: pad(spec.rotorSet).map((e, i) => withThrust(e, this._parseRef(rows[i].set.value))),
             };
             this.$edit.close();
             this._syncCraftSel();
@@ -788,7 +798,7 @@ export class FlightPlotter {
     _editPanel(spec) {
         const text = (value, attrs = {}) => h("input", { value: value ?? "", autocomplete: "off", ...attrs });
         const refInput = (r) => this._refInput(r);
-        const parseRef = refFromText;
+        const parseRef = (t) => this._parseRef(t);
 
         const $title = text(spec.title);
         const $ylabel = text(spec.ylabel);
@@ -810,7 +820,8 @@ export class FlightPlotter {
                     h("button", { type: "button", title: "Remove this series", onclick: () => tr.remove() }, "×"),
                 ),
             );
-            tr._color = s.color;
+            // colours default to the series index; pin it so reordering keeps them
+            tr._color = s.color ?? $rows.childElementCount;
             $rows.append(tr);
             return tr;
         };
@@ -830,6 +841,14 @@ export class FlightPlotter {
             const blank = series.findIndex((s) => !s.light && !s.solid && !s.dashed);
             if (blank >= 0) {
                 $error.textContent = `Series ${blank + 1} has no signal; give it one or remove it.`;
+                return;
+            }
+            if (!series.length) {
+                $error.textContent = "A panel needs a series. To get rid of the panel, use × in its tools.";
+                return;
+            }
+            if ($ylo.value.trim() && $yhi.value.trim() && +$ylo.value >= +$yhi.value) {
+                $error.textContent = "The lower end of the y range must be below the upper end.";
                 return;
             }
             Object.assign(spec, {

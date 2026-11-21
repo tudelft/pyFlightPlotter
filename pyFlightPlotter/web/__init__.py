@@ -251,8 +251,13 @@ class WebPlotter:
             raise ValueError("a layout is a dict with a non-empty 'tabs' list")
         if layout.get("format", LAYOUT_FORMAT) != LAYOUT_FORMAT:
             raise ValueError(f"not a {LAYOUT_FORMAT} file")
-        if layout.get("version", LAYOUT_VERSION) > LAYOUT_VERSION:
-            raise ValueError(f"layout version {layout['version']} is newer than this pyFlightPlotter reads")
+        version = layout.get("version", LAYOUT_VERSION)
+        if not isinstance(version, (int, float)) or isinstance(version, bool):
+            raise ValueError("the layout's version must be a number")
+        if version > LAYOUT_VERSION:
+            raise ValueError(f"layout version {version} is newer than this pyFlightPlotter reads")
+        if not all(isinstance(t, dict) for t in layout["tabs"]):
+            raise ValueError("each tab of a layout is a dict")
         self.tabs = [{"name": t.get("name") or f"Tab {i + 1}", "view": t.get("view", i == 0),
                       "panels": list(t.get("panels", []))} for i, t in enumerate(layout["tabs"])]
         if "viewport" in layout:

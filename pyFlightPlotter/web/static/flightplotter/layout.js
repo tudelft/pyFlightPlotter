@@ -45,7 +45,7 @@ export function refFromText(t) {
         return null;
     }
     const m = t.match(/^(.*\S)\s*\*\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)$/i);
-    return m ? [m[1], +m[2]] : t;
+    return m && Number.isFinite(+m[2]) ? [m[1], +m[2]] : t;
 }
 
 /** resolve column references; drop series styles whose column is missing and panels left empty */
@@ -79,9 +79,19 @@ export function resolvePanels(ds, panels) {
     return out;
 }
 
-/** give panels without row/col the next free slot (row-major), then drop empty rows and columns */
+/** give panels without row/col (or on a cell taken already) the next free slot (row-major), then drop empty rows
+ *  and columns */
 export function placePanels(panels, ncols = 3) {
-    const taken = new Set(panels.filter((p) => p.row != null && p.col != null).map((p) => `${p.row},${p.col}`));
+    const taken = new Set();
+    for (const p of panels) {
+        if (p.row != null && p.col != null) {
+            if (taken.has(`${p.row},${p.col}`)) {
+                p.row = p.col = null;
+            } else {
+                taken.add(`${p.row},${p.col}`);
+            }
+        }
+    }
     let r = 0;
     let c = 0;
     for (const p of panels) {
@@ -148,6 +158,8 @@ export function parseLayout(x) {
     };
     const isStr = (v) => typeof v === "string";
     const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+    const isVec3 = (v) => Array.isArray(v) && v.length === 3 && v.every(isNum);
+    const isPolyline = (v) => Array.isArray(v) && v.every(isVec3);
     const checkRef = (r, path) => {
         if (r == null || isStr(r) || (Array.isArray(r) && r.length === 2 && isStr(r[0]) && (r[1] == null || isNum(r[1])))) {
             return;
@@ -182,7 +194,12 @@ export function parseLayout(x) {
         }
         optional(p.title, isStr, `${at}.title`, "a string");
         optional(p.ylabel, isStr, `${at}.ylabel`, "a string");
-        optional(p.ylim, (v) => Array.isArray(v) && v.length === 2 && v.every((y) => y == null || isNum(y)), `${at}.ylim`, "[lo|null, hi|null]");
+        optional(
+            p.ylim,
+            (v) => Array.isArray(v) && v.length === 2 && v.every((y) => y == null || isNum(y)) && !(isNum(v[0]) && isNum(v[1]) && v[0] >= v[1]),
+            `${at}.ylim`,
+            "[lo|null, hi|null] with lo < hi",
+        );
         optional(p.styles, (v) => Array.isArray(v) && v.length === 3 && v.every((y) => y == null || isStr(y)), `${at}.styles`, "three labels or nulls");
         for (const k of ["row", "col"]) {
             optional(p[k], (v) => Number.isInteger(v) && v >= 0, `${at}.${k}`, "a non-negative integer");
@@ -196,7 +213,7 @@ export function parseLayout(x) {
                 fail(sat, "expected an object");
             }
             optional(s.label, isStr, `${sat}.label`, "a string");
-            optional(s.color, (v) => isStr(v) || Number.isInteger(v), `${sat}.color`, 'a color index or "#rrggbb"');
+            optional(s.color, (v) => (isStr(v) && /^#[0-9a-f]{6}$/i.test(v)) || (Number.isInteger(v) && v >= 0), `${sat}.color`, 'a color index (0, 1, ...) or "#rrggbb"');
             STYLE_KEYS.forEach((k) => checkRef(s[k], `${sat}.${k}`));
         });
     });
@@ -226,9 +243,19 @@ export function parseLayout(x) {
                 optional(v.craft[k], Array.isArray, `viewport.craft.${k}`, "a list");
             }
             optional(v.craft.name, isStr, "viewport.craft.name", "a string");
+            (v.craft.body || []).forEach((pl, i) => optional(pl, isPolyline, `viewport.craft.body[${i}]`, "a polyline [[x, y, z], ...]"));
+            (v.craft.surfaces || []).forEach((sf, i) => {
+                const at = `viewport.craft.surfaces[${i}]`;
+                if (!isObj(sf) || !isVec3(sf.tilt_xyz) || !isVec3(sf.tilt_axis) || !Array.isArray(sf.geometry) || !sf.geometry.every(isPolyline)) {
+                    fail(at, "expected {tilt_xyz: [x, y, z], tilt_axis: [x, y, z], geometry: [polyline, ...]}");
+                }
+            });
             (v.craft.rotors || []).forEach((r, i) => {
-                if (!isObj(r)) {
-                    fail(`viewport.craft.rotors[${i}]`, "expected an object");
+                if (!isObj(r) || !isVec3(r.xyz) || !isVec3(r.axis) || !(isNum(r.R) && r.R > 0)) {
+                    fail(`viewport.craft.rotors[${i}]`, "expected {xyz: [x, y, z], axis: [x, y, z], R > 0, ...}");
+                }
+                for (const k of ["tilt_xyz", "tilt_axis", "tilt2_axis"]) {
+                    optional(r[k], isVec3, `viewport.craft.rotors[${i}].${k}`, "[x, y, z]");
                 }
                 optional(r.spin, (y) => y === "cw" || y === "ccw", `viewport.craft.rotors[${i}].spin`, '"cw", "ccw" or null');
                 optional(r.label, isStr, `viewport.craft.rotors[${i}].label`, "a string");
@@ -251,7 +278,7 @@ export function parseLayout(x) {
         optional(v.interpolation, (y) => y === "previous" || y === "linear", "viewport.interpolation", '"previous" or "linear"');
     }
     return {
-        tabs: tabs.map((t, i) => ({ name: t.name || `Tab ${i + 1}`, view: t.view ?? i === 0, panels: structuredClone(t.panels) })),
+        tabs: tabs.map((t, i) => ({ name: t.name?.trim() || `Tab ${i + 1}`, view: t.view ?? i === 0, panels: structuredClone(t.panels) })),
         viewport: v === undefined ? undefined : structuredClone(v),
     };
 }

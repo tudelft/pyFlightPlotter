@@ -90,6 +90,11 @@ export class Session {
             w.close();
         }
         this.popouts.clear();
+        // the registry keeps a pop-out's way back (also across its reloads) until the session ends
+        for (const id of this._popoutIds ?? []) {
+            delete window.__flightplotterPopouts?.[id];
+        }
+        this._popoutIds = [];
     }
 
     _notify(kind, from = null) {
@@ -140,6 +145,7 @@ export class Session {
         const id = Math.random().toString(36).slice(2);
         const reg = (window.__flightplotterPopouts ??= {});
         reg[id] = { session: this, tab };
+        (this._popoutIds ??= []).push(id);
         const sep = this.popoutUrl.includes("?") ? "&" : "?";
         const w = window.open(`${this.popoutUrl}${sep}fp-popout=${id}`, `fp-${id}`, "popup,width=1200,height=800");
         if (!w) {
@@ -209,7 +215,7 @@ export class Session {
         this.playT = t;
         this.playing = true;
         this._last = performance.now();
-        this._raf = requestAnimationFrame((now) => this._tick(now));
+        this._nextFrame();
         this._notify("play");
     }
 
@@ -218,6 +224,7 @@ export class Session {
             return;
         }
         cancelAnimationFrame(this._raf);
+        clearTimeout(this._timer);
         this.playing = false;
         this.pinT = this.playT;
         this._notify("play");
@@ -243,7 +250,16 @@ export class Session {
             this.setRange(this.playT - 0.1 * span, this.playT + 0.9 * span);
         }
         this._notify("time");
-        this._raf = requestAnimationFrame((n) => this._tick(n));
+        this._nextFrame();
+    }
+
+    // frames come from this (the main) window, which may be hidden behind a pop-out playing back
+    _nextFrame() {
+        if (document.hidden) {
+            this._timer = setTimeout(() => this._tick(performance.now()), 16);
+        } else {
+            this._raf = requestAnimationFrame((now) => this._tick(now));
+        }
     }
 
     step(dir, big) {
