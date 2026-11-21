@@ -432,3 +432,89 @@
 .fp-siglist div.fp-sel {
     background: var(--fp-accent-soft);
 }
+
+/* panel editing */
+.fp-drag-handle {
+    cursor: grab;
+}
+.fp-panel.fp-dragged {
+    opacity: 0.45;
+}
+.fp-panel.fp-drop {
+    outline: 2px dashed var(--fp-accent);
+    outline-offset: -2px;
+}
+.fp-drop-ghost {
+    border: 2px dashed var(--fp-accent);
+    border-radius: 8px;
+    background: var(--fp-accent-soft);
+    pointer-events: none;
+}
+.fp-root .fp-edit input {
+    width: auto;
+    min-width: 0;
+    padding: 3px 6px;
+}
+.fp-form {
+    display: grid;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+.fp-form label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.fp-form label > span:first-child {
+    flex: none;
+    width: 80px;
+    color: var(--fp-muted);
+}
+.fp-form label > input {
+    flex: 1;
+}
+.fp-muted {
+    color: var(--fp-muted);
+}
+.fp-series-table {
+    border-collapse: collapse;
+    width: 100%;
+}
+.fp-series-table th {
+    text-align: left;
+    font-weight: 600;
+    padding: 2px 4px;
+}
+.fp-series-table th small {
+    font-weight: 400;
+    color: var(--fp-muted);
+}
+.fp-series-table td {
+    padding: 2px;
+}
+.fp-root .fp-series-table input {
+    width: 100%;
+}
+.fp-root .fp-series-table input.fp-ref {
+    font: 12px ui-monospace, monospace;
+    min-width: 150px;
+}
+.fp-root .fp-edit input.fp-missing {
+    border-color: #d33;
+    background: color-mix(in srgb, #d33 10%, var(--fp-bg));
+}
+.fp-rowtools {
+    white-space: nowrap;
+}
+.fp-root .fp-rowtools button {
+    padding: 0 6px;
+}
+.fp-edit-foot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+}
+.fp-edit-error {
+    color: #d33;
+}

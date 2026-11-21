@@ -1,6 +1,6 @@
 // FlightPlotter: synchronized time-series panels + 3D viewport in one component.
 import { Dataset } from "./dataset.js";
-import { resolvePanels, placePanels, layoutToJSON, parseLayout } from "./layout.js";
+import { STYLE_KEYS, resolvePanels, placePanels, layoutToJSON, parseLayout } from "./layout.js";
 import { PlotGrid } from "./plots.js";
 import { renderPsd } from "./psd.js";
 
@@ -216,12 +216,15 @@ export class FlightPlotter {
         this.$sigList = h("div", { class: "fp-siglist" });
         this.$sig.append(h("header", {}, this.$sigTitle, close(this.$sig)), this.$sigSearch, this.$sigList);
 
+        this.$edit = h("dialog", { class: "fp-dialog fp-edit" });
+        this.$signals = h("datalist", { id: `fp-signals-${Math.random().toString(36).slice(2)}` });
+
         this.$help = h("dialog", { class: "fp-dialog" });
         const ul = h("ul");
         ul.innerHTML = HELP.map((s) => `<li>${s}</li>`).join("");
         this.$help.append(h("header", {}, h("h2", {}, "Controls"), close(this.$help)), ul);
 
-        this.root = h("div", { class: "fp-root" }, toolbar, main, this.$psd, this.$sig, this.$help);
+        this.root = h("div", { class: "fp-root" }, toolbar, main, this.$psd, this.$sig, this.$edit, this.$signals, this.$help);
         container.append(this.root);
     }
 
@@ -296,6 +299,24 @@ export class FlightPlotter {
                 this._layoutChanged();
             },
             onAddSignal: (P) => this._pickSignal(P.spec.src),
+            onEdit: (P) => this._editPanel(P.spec.src),
+            onMove: (P, to) => {
+                // pin every shown panel where it is, then move this one
+                for (const Q of this.grid.panels) {
+                    Q.spec.src.row = Q.spec.row;
+                    Q.spec.src.col = Q.spec.col;
+                }
+                const a = P.spec.src;
+                if (to.panel) {
+                    const b = to.panel.spec.src;
+                    [a.row, a.col, b.row, b.col] = [b.row, b.col, a.row, a.col];
+                } else {
+                    a.row = to.row;
+                    a.col = to.col;
+                }
+                this._build(true);
+                this._layoutChanged();
+            },
         });
         this._layoutRows();
         if (range) {
@@ -516,6 +537,118 @@ export class FlightPlotter {
 
     _layoutChanged() {
         this.onLayoutChange?.(this.getLayout());
+    }
+
+    /** dialog editing a panel spec in place: titles, limits, style labels and the series table */
+    _editPanel(spec) {
+        const names = this.ds.names();
+        if (this.$signals.childElementCount !== names.length) {
+            this.$signals.replaceChildren(...names.map((n) => h("option", { value: n })));
+        }
+        const list = this.$signals.id;
+        const refText = (r) => (r == null ? "" : Array.isArray(r) ? (r[1] == null || r[1] === 1 ? r[0] : `${r[0]} * ${r[1]}`) : r);
+        // "name" or "name * scale"
+        const parseRef = (t) => {
+            t = t.trim();
+            if (!t) {
+                return null;
+            }
+            const m = t.match(/^(.*\S)\s*\*\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)$/i);
+            return m ? [m[1], +m[2]] : t;
+        };
+        const markMissing = (input) => {
+            const r = parseRef(input.value);
+            const col = Array.isArray(r) ? r[0] : r;
+            const missing = col != null && !this.ds.has(col);
+            input.classList.toggle("fp-missing", missing);
+            input.title = missing ? `"${col}" is not in this log` : 'A signal name, optionally "* scale"';
+        };
+        const text = (value, attrs = {}) => h("input", { value: value ?? "", autocomplete: "off", ...attrs });
+        const refInput = (r) => {
+            const i = text(refText(r), { list, class: "fp-ref", placeholder: "—" });
+            i.addEventListener("input", () => markMissing(i));
+            markMissing(i);
+            return i;
+        };
+
+        const $title = text(spec.title);
+        const $ylabel = text(spec.ylabel);
+        const $ylo = text(spec.ylim?.[0], { type: "number", step: "any", placeholder: "auto" });
+        const $yhi = text(spec.ylim?.[1], { type: "number", step: "any", placeholder: "auto" });
+        const $styles = [0, 1, 2].map((i) => text(spec.styles?.[i], { placeholder: "no label" }));
+        const $rows = h("tbody");
+        const addRow = (s = {}) => {
+            const tr = h(
+                "tr",
+                {},
+                h("td", {}, text(s.label, { class: "fp-label", placeholder: "label" })),
+                ...STYLE_KEYS.map((k) => h("td", {}, refInput(s[k]))),
+                h(
+                    "td",
+                    { class: "fp-rowtools" },
+                    h("button", { type: "button", title: "Move up", onclick: () => tr.previousSibling?.before(tr) }, "↑"),
+                    h("button", { type: "button", title: "Move down", onclick: () => tr.nextSibling?.after(tr) }, "↓"),
+                    h("button", { type: "button", title: "Remove this series", onclick: () => tr.remove() }, "×"),
+                ),
+            );
+            tr._color = s.color;
+            $rows.append(tr);
+            return tr;
+        };
+        (spec.series || []).forEach((s) => addRow(s));
+        const $error = h("div", { class: "fp-edit-error" });
+
+        const apply = () => {
+            const num = (i) => (i.value.trim() === "" ? null : +i.value);
+            const series = [...$rows.children].map((tr) => {
+                const [label, light, solid, dashed] = [...tr.querySelectorAll("input")].map((i) => i.value);
+                const s = { label: label.trim(), light: parseRef(light), solid: parseRef(solid), dashed: parseRef(dashed) };
+                if (tr._color != null) {
+                    s.color = tr._color;
+                }
+                return s;
+            });
+            const blank = series.findIndex((s) => !s.light && !s.solid && !s.dashed);
+            if (blank >= 0) {
+                $error.textContent = `Series ${blank + 1} has no signal; give it one or remove it.`;
+                return;
+            }
+            Object.assign(spec, {
+                title: $title.value,
+                ylabel: $ylabel.value,
+                ylim: [num($ylo), num($yhi)],
+                styles: $styles.map((i) => i.value.trim() || null),
+                series: series.map((s, i) => ({ ...s, label: s.label || `series ${i + 1}` })),
+            });
+            this.$edit.close();
+            this._build(true);
+            this._layoutChanged();
+        };
+
+        const field = (label, ...inputs) => h("label", {}, h("span", {}, label), ...inputs);
+        this.$edit.replaceChildren(
+            h("header", {}, h("h2", {}, "Edit panel"), h("button", { type: "button", onclick: () => this.$edit.close() }, "Cancel"),
+                h("button", { type: "button", class: "fp-on", onclick: apply }, "Apply")),
+            h("div", { class: "fp-form" },
+                field("Title", $title),
+                field("Y label", $ylabel),
+                field("Y range", $ylo, h("span", { class: "fp-muted" }, "to"), $yhi),
+                field("Line styles", ...$styles),
+            ),
+            h("table", { class: "fp-series-table" },
+                h("thead", {}, h("tr", {}, h("th", {}, "Series"),
+                    ...STYLE_KEYS.map((k, i) => h("th", {}, k, h("small", {}, spec.styles?.[i] ? ` (${spec.styles[i]})` : ""))),
+                    h("th"))),
+                $rows,
+            ),
+            h("div", { class: "fp-edit-foot" },
+                h("button", { type: "button", onclick: () => addRow().querySelector("input").focus() }, "+ Series"),
+                h("span", { class: "fp-muted" }, 'Signals by name; "name * 10" scales.'),
+                $error,
+            ),
+        );
+        this.$edit.showModal();
+        $title.focus();
     }
 
     // ------------------------------------------------------------ dialogs

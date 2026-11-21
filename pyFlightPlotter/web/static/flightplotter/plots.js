@@ -64,7 +64,8 @@ export class PlotGrid {
      * @param {Dataset} ds
      * @param {object[]} panels     resolved and placed panel specs
      * @param {object} theme        {text, muted, grid, tick, mode, event}
-     * @param {object} cb           {editable, onHover(t|null), onClick(t), onRange(min, max), onPsd(P), onRemove(P), onAddSignal(P)}
+     * @param {object} cb           {editable, onHover(t|null), onClick(t), onRange(min, max), onPsd(P), onRemove(P), onAddSignal(P),
+     *                               onEdit(P), onMove(P, {panel} | {row, col})}
      */
     constructor(root, ds, panels, theme, cb) {
         this.root = root;
@@ -104,6 +105,9 @@ export class PlotGrid {
         for (const P of this.panels) {
             this._ro.observe(P.plotEl);
         }
+        if (cb.editable) {
+            this._bindDrop();
+        }
     }
 
     destroy() {
@@ -132,6 +136,24 @@ export class PlotGrid {
         title.textContent = spec.title;
         title.title = spec.title;
         head.append(title);
+        if (this.cb.editable) {
+            // drag the header onto another panel (swap) or an empty cell (move)
+            head.draggable = true;
+            head.classList.add("fp-drag-handle");
+            title.title = `${spec.title}\nDrag to move, double click to edit`;
+            head.addEventListener("dragstart", (e) => {
+                this._dragging = P;
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", spec.title);
+                el.classList.add("fp-dragged");
+            });
+            head.addEventListener("dragend", () => {
+                this._dragging = null;
+                el.classList.remove("fp-dragged");
+                this._clearDropMarks();
+            });
+            title.addEventListener("dblclick", () => this.cb.onEdit?.(P));
+        }
         const styleKey = document.createElement("div");
         styleKey.className = "fp-stylekey";
         STYLE_KEYS.forEach((k, si) => {
@@ -226,6 +248,7 @@ export class PlotGrid {
         tool("PSD", "Power spectral density of the visible window", () => this.cb.onPsd?.(P));
         tool("PNG", "Save this panel as PNG", () => this._savePng(P));
         if (this.cb.editable) {
+            tool("✎", "Edit this panel", () => this.cb.onEdit?.(P));
             tool("+", "Add a signal to this panel", () => this.cb.onAddSignal?.(P));
             tool("×", "Remove this panel", () => this.cb.onRemove?.(P));
         }
@@ -295,6 +318,71 @@ export class PlotGrid {
         P.u.over.append(P.playheadEl);
         this._bindMouse(P);
         this.panels.push(P);
+    }
+
+    // ------------------------------------------------------------ drag and drop
+    _bindDrop() {
+        const root = this.root;
+        // grid cell under the pointer, from the grid's track sizes
+        const cellAt = (e) => {
+            const r = root.getBoundingClientRect();
+            const cs = getComputedStyle(root);
+            const gap = parseFloat(cs.columnGap) || 0;
+            const colW = (r.width - parseFloat(cs.paddingLeft || 0) - parseFloat(cs.paddingRight || 0) - gap * (this.ncols - 1)) / this.ncols;
+            const rowH = parseFloat(cs.getPropertyValue("--fp-row-h")) || 200;
+            return {
+                col: Math.max(0, Math.min(this.ncols - 1, Math.floor((e.clientX - r.left) / (colW + gap)))),
+                row: Math.max(0, Math.floor((e.clientY - r.top) / (rowH + gap))),
+            };
+        };
+        const target = (e) => {
+            const el = e.target.closest?.(".fp-panel");
+            const P = el && this.panels.find((x) => x.el === el);
+            return P ? { panel: P } : cellAt(e);
+        };
+        root.addEventListener("dragover", (e) => {
+            if (!this._dragging) {
+                return;
+            }
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            this._clearDropMarks();
+            const t = target(e);
+            if (t.panel) {
+                if (t.panel !== this._dragging) {
+                    t.panel.el.classList.add("fp-drop");
+                }
+            } else {
+                this._dropGhost ??= Object.assign(document.createElement("div"), { className: "fp-drop-ghost" });
+                this._dropGhost.style.gridRow = t.row + 1;
+                this._dropGhost.style.gridColumn = t.col + 1;
+                root.append(this._dropGhost);
+            }
+        });
+        root.addEventListener("dragleave", (e) => {
+            if (!root.contains(e.relatedTarget)) {
+                this._clearDropMarks();
+            }
+        });
+        root.addEventListener("drop", (e) => {
+            const P = this._dragging;
+            if (!P) {
+                return;
+            }
+            e.preventDefault();
+            this._clearDropMarks();
+            const t = target(e);
+            if (t.panel !== P) {
+                this.cb.onMove?.(P, t);
+            }
+        });
+    }
+
+    _clearDropMarks() {
+        for (const el of this.root.querySelectorAll(".fp-drop")) {
+            el.classList.remove("fp-drop");
+        }
+        this._dropGhost?.remove();
     }
 
     get syncKey() {
