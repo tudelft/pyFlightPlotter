@@ -491,14 +491,14 @@ export class PlotGrid {
      * uPlot's cursor sync covers one window only: each window runs its own copy of uPlot.
      */
     showCursor(t) {
-        const P = this.panels[0];
-        if (!P || this.hovered || t === this._remoteT) {
+        if (this.hovered || t === this._remoteT) {
             return;
         }
         this._remoteT = t;
-        const u = P.u;
-        // the other panels follow through uPlot's sync
-        u.setCursor(t == null ? { left: -10, top: -10 } : { left: u.valToPos(t, "x"), top: u.over.clientHeight / 2 });
+        // every panel: uPlot's sync only relays cursors moved by the mouse
+        for (const { u } of this.panels) {
+            u.setCursor(t == null ? { left: -10, top: -10 } : { left: u.valToPos(t, "x"), top: u.over.clientHeight / 2 });
+        }
     }
 
     _onCursor(P, u) {
