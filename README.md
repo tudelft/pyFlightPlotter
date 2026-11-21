@@ -175,10 +175,29 @@ const fp = new FlightPlotter(element, {
     panels: [{ title: "Position", ylabel: "[m]", styles: [null, "Estimate", null],
                series: [{ label: "X", solid: "pos[0]" }] }],
     viewport: { craft: quadrotor(), att: ["q0", "q1", "q2", "q3"], pos: ["pos[0]", "pos[1]", "pos[2]"] },
-    editable: false,   // no "+ Plot"
+    editable: false,   // no "+ Plot", panel editing or layout import/export
     theme: "dark",
 });
 ```
+
+### Layouts
+
+The data goes in once; the panels and the 3D view can change afterwards. With `editable` (the default), you can add
+plots and signals, remove panels, and use **Layout ⤓ / ⤒ / ↺** in the toolbar to export the layout as JSON, import
+one, or go back to the initial layout. The file holds no data, and column references that a log lacks are skipped,
+so one layout works across logs:
+
+```json
+{ "format": "flightplotter-layout", "version": 1,
+  "panels": [{ "title": "Position", "ylabel": "[m]", "styles": [null, "Estimate", null],
+               "series": [{ "label": "X", "solid": "pos[0]" }, { "label": "Y", "solid": ["pos[1]", -1] }] }],
+  "viewport": { "craft": { "body": [], "rotors": [], "surfaces": [] }, "att": ["q0", "q1", "q2", "q3"] } }
+```
+
+From code: `fp.getLayout()`, `fp.setLayout(layout)` (throws on a malformed layout, naming the entry), and the
+`onLayoutChange(layout)` option, e.g. to persist the user's layout. In Python, `wp.set_layout("layout.json")` and
+`wp.layout()` do the same before `show()`. A layout without a `"viewport"` key keeps the current 3D view;
+`"viewport": null` removes it.
 
 It needs `uplot` and `three` resolvable by the bundler; the page served from Python uses the copies in
 `pyFlightPlotter/web/static/vendor/` through an import map.

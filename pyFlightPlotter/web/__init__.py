@@ -18,6 +18,9 @@ layout; this module serves them, with the page, from a local HTTP server
     wp.set_viewport(Quadrotor(), att=quat_wxyz)        # N x 4 array or 4 column names
     wp.show()
 
+Instead of add_panel / set_viewport, a layout exported from the page ("Layout ⤓") can be loaded with
+wp.set_layout("layout.json"); wp.layout() returns the current one in the same format.
+
 Column references anywhere (panels, viewport) are a column name, a
 (name, scale) tuple, or an array (registered as a new signal).
 """
@@ -37,6 +40,8 @@ logger = logging.getLogger(__name__)
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 TIME = "__time__"
+LAYOUT_FORMAT = "flightplotter-layout"  # as layout.js
+LAYOUT_VERSION = 1
 
 
 def _jsonable(v):
@@ -212,6 +217,29 @@ class WebPlotter:
             "surface": actuators(surface, False), "surfaceSet": actuators(surfaceSet, False),
             "interpolation": interpolation,
         }
+        return self
+
+    def layout(self):
+        """panels and viewport in the page's layout file format (flightplotter/layout.js)"""
+        return _jsonable({"format": LAYOUT_FORMAT, "version": LAYOUT_VERSION,
+                          "panels": self.panels, "viewport": self.viewport})
+
+    def set_layout(self, layout):
+        """Replace the panels, and the viewport if the layout has a "viewport" key, with a layout
+        dict or the path of a JSON file exported from the page. The page checks the layout in
+        detail; column references not among the signals are skipped there."""
+        if isinstance(layout, (str, os.PathLike)):
+            with open(layout, encoding="utf-8") as f:
+                layout = json.load(f)
+        if not isinstance(layout, dict) or not isinstance(layout.get("panels"), list):
+            raise ValueError("a layout is a dict with a 'panels' list")
+        if layout.get("format", LAYOUT_FORMAT) != LAYOUT_FORMAT:
+            raise ValueError(f"not a {LAYOUT_FORMAT} file")
+        if layout.get("version", LAYOUT_VERSION) > LAYOUT_VERSION:
+            raise ValueError(f"layout version {layout['version']} is newer than this pyFlightPlotter reads")
+        self.panels = list(layout["panels"])
+        if "viewport" in layout:
+            self.viewport = layout["viewport"]
         return self
 
     # ------------------------------------------------------------ serialization

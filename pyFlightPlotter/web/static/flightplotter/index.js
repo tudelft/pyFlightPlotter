@@ -3,6 +3,7 @@
 // (bundler, or an import map), plus style.css and uplot/dist/uPlot.min.css.
 export { FlightPlotter } from "./plotter.js";
 export { Dataset } from "./dataset.js";
+export { LAYOUT_FORMAT, LAYOUT_VERSION, layoutToJSON, parseLayout } from "./layout.js";
 export { Craft3D, quadrotor, tailsitter, multirotor, noseArrow } from "./crafts.js";
 export { COLORS } from "./plots.js";
 export { welch } from "./psd.js";

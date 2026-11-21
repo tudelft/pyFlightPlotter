@@ -1,6 +1,6 @@
 // FlightPlotter: synchronized time-series panels + 3D viewport in one component.
 import { Dataset } from "./dataset.js";
-import { resolvePanels, placePanels } from "./layout.js";
+import { resolvePanels, placePanels, layoutToJSON, parseLayout } from "./layout.js";
 import { PlotGrid } from "./plots.js";
 import { renderPsd } from "./psd.js";
 
@@ -11,7 +11,8 @@ const HELP = [
     "<b>Right / middle drag</b>, <kbd>Shift</kbd>+wheel or horizontal scroll to pan",
     "<kbd>Space</kbd> play / pause, <kbd>←</kbd> <kbd>→</kbd> step one sample (<kbd>Shift</kbd>: 0.1 s)",
     "Click a <b>series</b> to hide it, or a <b>line style</b> in the panel header to hide that style",
-    "Panel tools on hover: <b>PSD</b> (Welch spectrum of the visible window), <b>PNG</b> export",
+    "Panel tools on hover: <b>PSD</b> (Welch spectrum of the visible window), <b>PNG</b> export; when editable, <b>+</b> adds a signal and <b>×</b> removes the panel",
+    "<b>Layout</b> (when editable): export the panels and 3D view as JSON, import one, or reset to the initial layout",
     "3D view: left drag rotates, right drag pans, wheel zooms; click the axis gizmo to snap the view",
 ];
 
@@ -40,18 +41,24 @@ export class FlightPlotter {
      * @param {object[]} o.panels      panel specs (see layout.js)
      * @param {object} [o.viewport]    viewport spec (see viewport.js); omit for no 3D view
      * @param {string} [o.title]
-     * @param {boolean} [o.editable]   allow adding/removing panels of any signal (default true)
+     * @param {boolean} [o.editable]   allow adding/removing panels and signals, and layout import/export (default true)
      * @param {number} [o.ncols]       grid columns for panels without row/col (default 3)
      * @param {number} [o.rows]        panel rows that fit the height; 0 = all (default 5)
      * @param {"light"|"dark"} [o.theme]
+     * @param {string} [o.layoutName]  file name for exported layouts (default "layout")
+     * @param {(layout: object) => void} [o.onLayoutChange]  after every edit, import or reset, with getLayout()
      */
     constructor(container, o) {
         this.ds = o.data instanceof Dataset ? o.data : new Dataset(o.data);
-        this.panelSpecs = o.panels || [];
-        this.viewportSpec = o.viewport || null;
+        // own copies, so edits never mutate the host's objects; Craft3D becomes plain geometry
+        const initial = layoutToJSON(o.panels || [], o.viewport || null);
+        this.initialLayout = initial;
+        this.panelSpecs = structuredClone(initial.panels);
+        this.viewportSpec = structuredClone(initial.viewport);
         this.editable = o.editable ?? true;
         this.ncols = o.ncols ?? 3;
-        this.customPanels = [];
+        this.layoutName = o.layoutName || "layout";
+        this.onLayoutChange = o.onLayoutChange || null;
         this.hoverT = null;
         this.pinT = null;
         this.playing = false;
@@ -94,7 +101,21 @@ export class FlightPlotter {
         );
         this.$clock = h("span", { class: "fp-clock" });
         this.$status = h("span", { class: "fp-status" });
-        this.$view3d = btn("3D", "Show / hide the 3D view", "fp-on", () => this._toggleView());
+        this.$view3d = btn("3D", "Show / hide the 3D view", "fp-on fp-view-btn", () => this._toggleView());
+        this.$layoutFile = h("input", {
+            type: "file",
+            accept: ".json,application/json",
+            hidden: true,
+            onchange: (e) => this._importLayoutFile(e.target),
+        });
+        const layoutMenu = h(
+            "span",
+            { class: "fp-btngroup" },
+            btn("Layout ⤓", "Export the panels and 3D view as JSON", "", () => this.exportLayout()),
+            btn("⤒", "Import a layout JSON", "", () => this.$layoutFile.click()),
+            btn("↺", "Reset to the initial layout", "", () => this.setLayout(this.initialLayout)),
+            this.$layoutFile,
+        );
         const rows = h(
             "select",
             { class: "fp-rows", title: "Panel rows that fit the height", onchange: () => this._layoutRows() },
@@ -108,6 +129,7 @@ export class FlightPlotter {
             o.title ? h("span", { class: "fp-title", title: o.title }, o.title) : "",
             h("span", { class: "fp-slot" }),
             this.editable ? btn("+ Plot", "Add a plot of any signal", "", () => this._pickSignal()) : "",
+            this.editable ? layoutMenu : "",
             h("span", { class: "fp-sep" }),
             this.$play,
             this.$speed,
@@ -115,7 +137,7 @@ export class FlightPlotter {
             h("span", { class: "fp-grow" }),
             this.$status,
             h("label", { title: "Panel rows that fit the height" }, "Rows ", rows),
-            this.viewportSpec ? this.$view3d : "",
+            this.$view3d,
             btn("?", "Mouse and keyboard controls", "", () => this.$help.showModal()),
         );
 
@@ -124,44 +146,43 @@ export class FlightPlotter {
         this.$split = h("div", { class: "fp-split", title: "Drag to resize" });
         this.$view = h("div", { class: "fp-view" });
         const main = h("div", { class: "fp-main" }, this.$gridwrap);
-        if (this.viewportSpec) {
-            const vbtn = (k, label, color, dashed) => {
-                const b = h("button", { "data-k": k, style: `--fp-c:${color}` }, h("i", { class: dashed ? "fp-dash" : "" }), label);
-                b.onclick = () => {
-                    const off = !this.viewHidden.has(k);
-                    if (off) {
-                        this.viewHidden.add(k);
-                    } else {
-                        this.viewHidden.delete(k);
-                    }
-                    b.classList.toggle("fp-off", off);
-                    this.view?.setVisible(k, !off);
-                };
-                return b;
+        // built even without a viewport spec, since an imported layout can add one; .fp-noview hides it
+        const vbtn = (k, label, color, dashed) => {
+            const b = h("button", { "data-k": k, style: `--fp-c:${color}` }, h("i", { class: dashed ? "fp-dash" : "" }), label);
+            b.onclick = () => {
+                const off = !this.viewHidden.has(k);
+                if (off) {
+                    this.viewHidden.add(k);
+                } else {
+                    this.viewHidden.delete(k);
+                }
+                b.classList.toggle("fp-off", off);
+                this.view?.setVisible(k, !off);
             };
-            this.$follow = btn("Follow", "Camera follows the craft", "", () => {
-                this.follow = !this.follow;
-                this.$follow.classList.toggle("fp-on", this.follow);
-                this.view?.setFollow(this.follow);
-            });
-            this.$viewbar = h(
-                "div",
-                { class: "fp-viewbar" },
-                vbtn("est", "Estimate", "#1f77b4"),
-                vbtn("set", "Setpoint", "#ff7f0e", true),
-                vbtn("meas", "Measurement", "#2ca02c", true),
-                vbtn("trail", "Path", "#999"),
-                this.$follow,
-                btn("Reset view", "Reset camera", "", () => {
-                    this.follow = false;
-                    this.$follow.classList.remove("fp-on");
-                    this.view?.setFollow(false);
-                }),
-            );
-            this.$view.append(h("div", { class: "fp-view3d" }), this.$viewbar);
-            main.append(this.$split, this.$view);
-            this._bindSplitter();
-        }
+            return b;
+        };
+        this.$follow = btn("Follow", "Camera follows the craft", "", () => {
+            this.follow = !this.follow;
+            this.$follow.classList.toggle("fp-on", this.follow);
+            this.view?.setFollow(this.follow);
+        });
+        this.$viewbar = h(
+            "div",
+            { class: "fp-viewbar" },
+            vbtn("est", "Estimate", "#1f77b4"),
+            vbtn("set", "Setpoint", "#ff7f0e", true),
+            vbtn("meas", "Measurement", "#2ca02c", true),
+            vbtn("trail", "Path", "#999"),
+            this.$follow,
+            btn("Reset view", "Reset camera", "", () => {
+                this.follow = false;
+                this.$follow.classList.remove("fp-on");
+                this.view?.setFollow(false);
+            }),
+        );
+        this.$view.append(h("div", { class: "fp-view3d" }), this.$viewbar);
+        main.append(this.$split, this.$view);
+        this._bindSplitter();
 
         const close = (d) => h("button", { onclick: () => d.close() }, "Close");
         this.$psd = h("dialog", { class: "fp-dialog" });
@@ -238,10 +259,11 @@ export class FlightPlotter {
     // ------------------------------------------------------------ build
     _build(keepRange = false) {
         const range = keepRange && this.grid ? this.grid.range : null;
-        const specs = [...this.panelSpecs, ...this.customPanels];
-        const panels = placePanels(resolvePanels(this.ds, specs), this.ncols);
+        const panels = placePanels(resolvePanels(this.ds, this.panelSpecs), this.ncols);
+        this.root.classList.toggle("fp-noview", !this.viewportSpec);
         this.grid?.destroy();
         this.grid = new PlotGrid(this.$grid, this.ds, panels, this.theme, {
+            editable: this.editable,
             onHover: (t) => {
                 this.hoverT = t;
                 if (!this.playing) {
@@ -259,8 +281,9 @@ export class FlightPlotter {
                 this._renderPsd();
             },
             onRemove: (P) => {
-                this.customPanels = this.customPanels.filter((c) => c !== P.spec.src);
+                this.panelSpecs = this.panelSpecs.filter((c) => c !== P.spec.src);
                 this._build(true);
+                this._layoutChanged();
             },
             onAddSignal: (P) => this._pickSignal(P.spec.src),
         });
@@ -440,6 +463,51 @@ export class FlightPlotter {
         }
     }
 
+    // ------------------------------------------------------------ layout
+    /** the current panels and viewport as plain JSON (see layout.js), including the user's edits */
+    getLayout() {
+        return layoutToJSON(this.panelSpecs, this.viewportSpec);
+    }
+
+    /**
+     * Replace the panels and, if the layout has a "viewport" key, the 3D view. The data stays.
+     * Throws an Error naming the offending entry if the layout is malformed.
+     */
+    setLayout(layout) {
+        const l = parseLayout(layout);
+        this.panelSpecs = l.panels;
+        if (l.viewport !== undefined) {
+            this.viewportSpec = l.viewport;
+        }
+        this._build(true);
+        this._layoutChanged();
+    }
+
+    /** download getLayout() as <layoutName>.json */
+    exportLayout() {
+        const blob = new Blob([JSON.stringify(this.getLayout(), null, 2)], { type: "application/json" });
+        const a = h("a", { href: URL.createObjectURL(blob), download: `${this.layoutName}.json` });
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 0);
+    }
+
+    async _importLayoutFile(input) {
+        const file = input.files?.[0];
+        input.value = "";
+        if (!file) {
+            return;
+        }
+        try {
+            this.setLayout(JSON.parse(await file.text()));
+        } catch (e) {
+            alert(`Could not import ${file.name}: ${e.message || e}`);
+        }
+    }
+
+    _layoutChanged() {
+        this.onLayoutChange?.(this.getLayout());
+    }
+
     // ------------------------------------------------------------ dialogs
     _renderPsd() {
         const P = this._psdPanel;
@@ -455,15 +523,14 @@ export class FlightPlotter {
             this.$sig.close();
             if (target) {
                 target.series.push({ label: n, solid: n, color: target.series.length });
-                if (target.series.length === 2) {
+                if (target.custom && target.series.length === 2) {
                     target.title = "Custom";
                 }
             } else {
-                const spec = { title: n, custom: true, styles: [null, null, null], series: [{ label: n, solid: n }] };
-                spec.src = spec;
-                this.customPanels.push(spec);
+                this.panelSpecs.push({ title: n, custom: true, styles: [null, null, null], series: [{ label: n, solid: n }] });
             }
             this._build(true);
+            this._layoutChanged();
             requestAnimationFrame(() => this.$gridwrap.scrollTo({ top: this.$gridwrap.scrollHeight, behavior: "smooth" }));
         };
         const render = () => {

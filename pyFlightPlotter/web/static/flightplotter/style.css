@@ -108,6 +108,24 @@
 .fp-grow {
     flex: 1;
 }
+.fp-btngroup {
+    display: inline-flex;
+}
+.fp-root .fp-btngroup button:not(:first-child) {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    margin-left: -1px;
+}
+.fp-root .fp-btngroup button:not(:last-of-type) {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+/* no viewport spec (yet): an imported layout can add one */
+.fp-root.fp-noview .fp-view,
+.fp-root.fp-noview .fp-split,
+.fp-root.fp-noview .fp-view-btn {
+    display: none;
+}
 .fp-toolbar label {
     display: inline-flex;
     gap: 5px;

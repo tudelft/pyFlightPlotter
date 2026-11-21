@@ -64,7 +64,7 @@ export class PlotGrid {
      * @param {Dataset} ds
      * @param {object[]} panels     resolved and placed panel specs
      * @param {object} theme        {text, muted, grid, tick, mode, event}
-     * @param {object} cb           {onHover(t|null), onClick(t), onRange(min, max), onPsd(P), onRemove(P), onAddSignal(P)}
+     * @param {object} cb           {editable, onHover(t|null), onClick(t), onRange(min, max), onPsd(P), onRemove(P), onAddSignal(P)}
      */
     constructor(root, ds, panels, theme, cb) {
         this.root = root;
@@ -225,7 +225,7 @@ export class PlotGrid {
         };
         tool("PSD", "Power spectral density of the visible window", () => this.cb.onPsd?.(P));
         tool("PNG", "Save this panel as PNG", () => this._savePng(P));
-        if (spec.custom) {
+        if (this.cb.editable) {
             tool("+", "Add a signal to this panel", () => this.cb.onAddSignal?.(P));
             tool("×", "Remove this panel", () => this.cb.onRemove?.(P));
         }
