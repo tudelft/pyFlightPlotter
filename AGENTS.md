@@ -25,6 +25,15 @@ Facts about this repo that aren't obvious from the code. User-facing usage is in
   `uplot/dist/uPlot.min.css`.
 - `FlightPlotter.toolbarSlot` is an empty element in the toolbar that hosts fill with their own controls (the configurator
   teleports its file selector into it).
+- `Session` (`session.js`) holds what all views of one log share: the data, the layout (tabs and the one viewport spec)
+  and the time state (hover, pin, range, playback). A `FlightPlotter` is a view on it. State changes go through session
+  methods, which notify every view through `sessionChanged(kind)`. Don't keep time or layout state in a view.
+- Pop-out windows load the host's `popoutUrl` page, which runs its own copy of the library and joins the opener's
+  session via `window.opener.__flightplotterPopouts[id]` (`attachPopout()`). So a session holds objects from several JS
+  realms. `Session.detach()` copies a closing window's tab back into the opener's realm, and keeps tab object identity,
+  which other pop-outs compare against. Keep that in mind before caching anything a pop-out created.
+- Layout files are versioned (`LAYOUT_VERSION` in `layout.js`, mirrored in `web/__init__.py`). `parseLayout()` must keep
+  reading every older version. Bump the version when the format changes incompatibly.
 - Performance matters, because logs reach about 10^6 samples × 300 columns:
   - Store columns as `Float32Array`; only time is `Float64Array`.
   - Coalesce redraws to one per animation frame.
