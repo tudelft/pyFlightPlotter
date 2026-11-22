@@ -77,6 +77,7 @@ export class PlotGrid {
         this.t1 = ds.t1;
         this.range = [this.t0, this.t1];
         this.playhead = null;
+        this.replayhead = null;
         this.hovered = null;
         this.showEvents = true;
         this._pendingRange = null;
@@ -320,7 +321,10 @@ export class PlotGrid {
         P.playheadEl = document.createElement("div");
         P.playheadEl.className = "fp-playhead";
         P.playheadEl.hidden = true;
-        P.u.over.append(P.playheadEl);
+        P.replayheadEl = document.createElement("div");
+        P.replayheadEl.className = "fp-replayhead";
+        P.replayheadEl.hidden = true;
+        P.u.over.append(P.playheadEl, P.replayheadEl);
         this._bindMouse(P);
         this.panels.push(P);
     }
@@ -510,8 +514,8 @@ export class PlotGrid {
         }
         if (inside) {
             this._writeChips(P, idx);
-        } else if (this.playhead != null) {
-            this._writeChips(P, this.ds.indexAt(this.playhead));
+        } else if ((this.replayhead ?? this.playhead) != null) {
+            this._writeChips(P, this.ds.indexAt(this.replayhead ?? this.playhead));
         }
     }
 
@@ -559,11 +563,17 @@ export class PlotGrid {
     }
 
     // ------------------------------------------------------------ playhead
-    setPlayhead(t) {
+    /**
+     * The solid line at t (the pinned or playing time) and, during a replay, the dashed one at the playing time
+     * (null: none). Values show at the dashed one if there is one.
+     */
+    setPlayhead(t, replayT = null) {
         this.playhead = t;
+        this.replayhead = replayT;
         this._placePlayheads();
-        if (t != null && !this.hovered) {
-            const idx = this.ds.indexAt(t);
+        const at = replayT ?? t;
+        if (at != null && !this.hovered) {
+            const idx = this.ds.indexAt(at);
             for (const P of this.panels) {
                 this._writeChips(P, idx);
             }
@@ -571,14 +581,15 @@ export class PlotGrid {
     }
 
     _placePlayheads() {
-        const t = this.playhead;
-        for (const P of this.panels) {
-            if (t == null || t < this.range[0] || t > this.range[1]) {
-                P.playheadEl.hidden = true;
-                continue;
+        const place = (P, el, t) => {
+            el.hidden = t == null || t < this.range[0] || t > this.range[1];
+            if (!el.hidden) {
+                el.style.transform = `translateX(${P.u.valToPos(t, "x")}px)`;
             }
-            P.playheadEl.hidden = false;
-            P.playheadEl.style.transform = `translateX(${P.u.valToPos(t, "x")}px)`;
+        };
+        for (const P of this.panels) {
+            place(P, P.playheadEl, this.playhead);
+            place(P, P.replayheadEl, this.replayhead);
         }
     }
 

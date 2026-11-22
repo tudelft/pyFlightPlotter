@@ -1,9 +1,23 @@
 // FlightPlotter: synchronized time-series panels + 3D viewport in one component.
 import { Dataset } from "./dataset.js";
 import { Session } from "./session.js";
-import { STYLE_KEYS, resolvePanels, placePanels, layoutToJSON, parseLayout, refToText, refFromText } from "./layout.js";
+import { STYLE_KEYS, TAB_FORMAT, resolvePanels, placePanels, layoutToJSON, tabToJSON, parseLayout, parseLayoutOrTab, refToText, refFromText } from "./layout.js";
 import { PlotGrid } from "./plots.js";
 import { renderPsd } from "./psd.js";
+
+// "download" and "upload" from Lucide (lucide.dev, ISC license), the set Nuxt UI hosts tend to use
+const ICONS = {
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+    upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
+};
+const iconSvg = (name) =>
+    `<svg class="fp-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+/** an inline icon element, sized to the text */
+function icon(name) {
+    const t = document.createElement("template");
+    t.innerHTML = iconSvg(name);
+    return t.content.firstChild;
+}
 
 const HELP = [
     "<b>Hover</b> a plot to move the time cursor; values show next to each series and the 3D view follows",
@@ -11,9 +25,11 @@ const HELP = [
     "<b>Drag</b> to zoom into a time window, <b>wheel</b> to zoom around the mouse, <b>double click</b> to reset",
     "<b>Right / middle drag</b>, <kbd>Shift</kbd>+wheel or horizontal scroll to pan",
     "<kbd>Space</kbd> play / pause, <kbd>←</kbd> <kbd>→</kbd> step one sample (<kbd>Shift</kbd>: 0.1 s)",
+    "<kbd>Shift</kbd>+<kbd>Space</kbd> or <kbd>Ctrl</kbd>+<kbd>Space</kbd> (or <kbd>Shift</kbd>/<kbd>Ctrl</kbd>+click ▶) replays: the pinned time stays put while a dashed line plays. <kbd>Space</kbd> stops it, leaving the dashed line where it stopped, and plays again from the pinned time, until you pin another time or press <kbd>Esc</kbd>",
     "Click a <b>series</b> to hide it, or a <b>line style</b> in the panel header to hide that style",
     "Panel tools on hover: <b>PSD</b> (Welch spectrum of the visible window), <b>PNG</b> export; when editable, <b>+</b> adds a signal and <b>×</b> removes the panel",
-    "<b>Layout</b> (when editable): export the panels and 3D view as JSON, import one, or reset to the initial layout",
+    `<b>Layout</b> (when editable): export the panels and 3D view as JSON (${iconSvg("download")}), import one (${iconSvg("upload")}), or reset to the initial layout (↺)`,
+    `Tabs (when editable): ${iconSvg("download")} on the active tab saves just that tab as a <code>.tab.json</code> file, ${iconSvg("upload")} next to <b>+</b> adds the tabs of such files (or all tabs of a layout file)`,
     "3D view: left drag rotates, right drag pans, wheel zooms; click the axis gizmo to snap the view",
 ];
 
@@ -193,8 +209,10 @@ export class FlightPlotter {
 
     // ------------------------------------------------------------ dom
     _buildDom(container, o) {
-        const btn = (text, title, cls, onclick) => h("button", { class: cls, title, onclick }, text);
-        this.$play = btn("▶", "Play / pause (Space)", "fp-play", () => this.togglePlay());
+        const btn = (text, title, cls, onclick) => h("button", { class: cls, title, onclick }, ...[text].flat());
+        this.$play = btn("▶", "Play / pause (Space); Shift/Ctrl+click: replay from the pinned time, which stays (Shift/Ctrl+Space)", "fp-play", (e) =>
+            this.togglePlay(e.shiftKey || e.ctrlKey || e.metaKey),
+        );
         this.$speed = h(
             "select",
             { title: "Playback speed", onchange: (e) => this.session.setSpeed(+e.target.value) },
@@ -209,13 +227,21 @@ export class FlightPlotter {
             hidden: true,
             onchange: (e) => this._importLayoutFile(e.target),
         });
+        this.$tabFile = h("input", {
+            type: "file",
+            accept: ".json,application/json",
+            multiple: true,
+            hidden: true,
+            onchange: (e) => this._importTabFiles(e.target),
+        });
         const layoutMenu = h(
             "span",
             { class: "fp-btngroup" },
-            btn("Layout ⤓", "Export the panels and 3D view as JSON", "", () => this.exportLayout()),
-            btn("⤒", "Import a layout JSON", "", () => this.$layoutFile.click()),
+            btn(["Layout ", icon("download")], "Export the panels and 3D view as JSON", "", () => this.exportLayout()),
+            btn(icon("upload"), "Import a layout JSON", "", () => this.$layoutFile.click()),
             btn("↺", "Reset to the initial layout", "", () => this.setLayout(this.initialLayout)),
             this.$layoutFile,
+            this.$tabFile,
         );
         const rows = h(
             "select",
@@ -497,11 +523,13 @@ export class FlightPlotter {
                     "div",
                     { class: `fp-tab${t === shown && !popped ? " fp-active" : ""}${popped ? " fp-popped" : ""}` },
                     name,
+                    this.editable && t === shown && !popped ? btn(icon("download"), "Save this tab as a .tab.json file", () => this.exportTab(t)) : "",
                     S.popoutUrl && !popped ? btn("⧉", "Open this tab in a new window", () => this._popOut(t)) : "",
                     this.editable && S.tabs.length > 1 ? btn("×", "Close this tab", () => this._closeTab(t)) : "",
                 );
             }),
             this.editable ? btn("+", "New tab", () => this._addTab(), "fp-tabadd") : "",
+            this.editable ? btn(icon("upload"), "Add tabs from .tab.json files (or all tabs of a layout file)", () => this.$tabFile.click(), "fp-tabadd") : "",
         );
     }
 
@@ -523,6 +551,28 @@ export class FlightPlotter {
         }
         S.tabs.push({ name: `Tab ${n}`, view: false, panels: [] });
         this.activeTab = S.tabs.length - 1;
+        this._build();
+        this._layoutChanged();
+    }
+
+    /**
+     * Append tabs, e.g. from parseTab(); names already taken get a " (2)", " (3)", ... suffix.
+     * Shows the first of them.
+     */
+    addTabs(tabs) {
+        const S = this.session;
+        if (!tabs.length) {
+            return;
+        }
+        const first = S.tabs.length;
+        for (const t of tabs) {
+            let name = t.name;
+            for (let n = 2; S.tabs.some((u) => u.name === name); n++) {
+                name = `${t.name} (${n})`;
+            }
+            S.tabs.push({ name, view: !!t.view, panels: structuredClone(t.panels) });
+        }
+        this.activeTab = first;
         this._build();
         this._layoutChanged();
     }
@@ -588,8 +638,9 @@ export class FlightPlotter {
         this.session.setPin(t);
     }
 
-    togglePlay() {
-        this.session.togglePlay();
+    /** start or stop playback; replay: keep the pinned time (Session.togglePlay) */
+    togglePlay(replay = false) {
+        this.session.togglePlay(replay);
     }
 
     _showPlay() {
@@ -603,15 +654,17 @@ export class FlightPlotter {
         const S = this.session;
         const t = S.currentT();
         this.view?.setTime(t);
-        const head = S.playing ? S.playT : S.pinT;
-        this.grid?.setPlayhead(head);
+        const head = S.playing && S.replayT == null ? S.playT : S.pinT;
+        this.grid?.setPlayhead(head, S.replayT);
         if (S.hoverFrom !== this) {
             this.grid?.showCursor(S.playing ? null : S.hoverT);
         }
         const c = this.$clock;
-        if (S.pinT != null && S.hoverT != null && !S.playing) {
-            const dt = S.hoverT - S.pinT;
-            c.innerHTML = `t ${S.hoverT.toFixed(3)} s <span class="fp-pin">Δ ${dt >= 0 ? "+" : ""}${dt.toFixed(3)}</span>`;
+        // shown relative to the pin
+        const rel = S.playing ? S.replayT : (S.hoverT ?? S.replayT);
+        if (S.pinT != null && rel != null) {
+            const dt = rel - S.pinT;
+            c.innerHTML = `t ${rel.toFixed(3)} s <span class="fp-pin">Δ ${dt >= 0 ? "+" : ""}${dt.toFixed(3)}</span>`;
         } else if (head != null) {
             c.innerHTML = `<span class="fp-pin">t ${head.toFixed(3)} s</span>`;
         } else {
@@ -630,7 +683,7 @@ export class FlightPlotter {
         const S = this.session;
         if (e.code === "Space") {
             e.preventDefault();
-            S.togglePlay();
+            S.togglePlay(e.shiftKey || e.ctrlKey || e.metaKey);
         } else if (e.key === "Escape") {
             S.unpin();
         } else if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
@@ -657,8 +710,18 @@ export class FlightPlotter {
 
     /** download getLayout() as <layoutName>.json */
     exportLayout() {
-        const blob = new Blob([JSON.stringify(this.getLayout(), null, 2)], { type: "application/json" });
-        const a = h("a", { href: URL.createObjectURL(blob), download: `${this.session.layoutName}.json` });
+        this._download(this.getLayout(), `${this.session.layoutName}.json`);
+    }
+
+    /** download one tab as <layoutName>-<tab name>.tab.json */
+    exportTab(tab = this.tab) {
+        const name = tab.name.replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/^_+|_+$/g, "") || "tab";
+        this._download(tabToJSON(tab), `${this.session.layoutName}-${name}.tab.json`);
+    }
+
+    _download(obj, filename) {
+        const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+        const a = h("a", { href: URL.createObjectURL(blob), download: filename });
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 0);
     }
@@ -670,9 +733,34 @@ export class FlightPlotter {
             return;
         }
         try {
-            this.setLayout(JSON.parse(await file.text()));
+            const x = JSON.parse(await file.text());
+            // a single tab joins the others rather than replacing them all
+            if (x?.format === TAB_FORMAT) {
+                this.addTabs(parseLayoutOrTab(x).tabs);
+            } else {
+                this.setLayout(x);
+            }
         } catch (e) {
             alert(`Could not import ${file.name}: ${e.message || e}`);
+        }
+    }
+
+    /** add the tabs of every chosen file; one bad file doesn't stop the others */
+    async _importTabFiles(input) {
+        const files = [...(input.files || [])];
+        input.value = "";
+        const tabs = [];
+        const errors = [];
+        for (const file of files) {
+            try {
+                tabs.push(...parseLayoutOrTab(JSON.parse(await file.text())).tabs);
+            } catch (e) {
+                errors.push(`${file.name}: ${e.message || e}`);
+            }
+        }
+        this.addTabs(tabs);
+        if (errors.length) {
+            alert(`Could not import\n${errors.join("\n")}`);
         }
     }
 

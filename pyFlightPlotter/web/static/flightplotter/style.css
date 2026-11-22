@@ -64,6 +64,12 @@
     background: var(--fp-panel);
     cursor: pointer;
 }
+.fp-root .fp-icon {
+    display: inline-block; /* hosts' CSS resets (Tailwind's preflight) make svg a block */
+    width: 1.1em;
+    height: 1.1em;
+    vertical-align: -0.2em;
+}
 .fp-root button:hover {
     border-color: var(--fp-muted);
 }
@@ -347,6 +353,16 @@
 }
 .fp-plot .u-axis {
     color: var(--fp-muted);
+}
+.fp-replayhead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 0;
+    border-left: 1.5px dashed var(--fp-accent);
+    pointer-events: none;
+    z-index: 5;
 }
 .fp-playhead {
     position: absolute;

@@ -30,6 +30,9 @@ export class Session {
         this.hoverT = null;
         this.pinT = null;
         this.playing = false;
+        // replay mode: playback starts from the pinned time, which stays pinned; replayT is where playback is, or
+        // stopped (the dashed line). null: not in replay mode
+        this.replayT = null;
         this.playT = 0;
         this.speed = 1;
         this.range = null; // null: full log
@@ -167,7 +170,7 @@ export class Session {
         if (this.playing) {
             return this.playT;
         }
-        return this.hoverT ?? this.pinT ?? this.ds.t0;
+        return this.hoverT ?? this.replayT ?? this.pinT ?? this.ds.t0;
     }
 
     /** hover at time t (null: none) in view `from`; the other views draw their cursor there */
@@ -181,6 +184,7 @@ export class Session {
 
     setPin(t) {
         this.stopPlay();
+        this.replayT = null;
         this.pinT = t;
         this._notify("time");
     }
@@ -204,7 +208,12 @@ export class Session {
         this._notify("play");
     }
 
-    togglePlay() {
+    /**
+     * Start or stop playback from the pinned time (else the hovered one, else the left edge). replay starts replay
+     * mode, in which the pin stays where it was instead of following, so every playback starts from the same time.
+     * The mode lasts until the pin changes (setPin, step, unpin).
+     */
+    togglePlay(replay = false) {
         if (this.playing) {
             this.stopPlay();
             return;
@@ -213,6 +222,10 @@ export class Session {
         let t = this.pinT ?? this.hoverT ?? a;
         if (t >= this.ds.t1) {
             t = a;
+        }
+        if (replay || this.replayT != null) {
+            this.pinT = t;
+            this.replayT = t;
         }
         this.playT = t;
         this.playing = true;
@@ -228,7 +241,11 @@ export class Session {
         cancelAnimationFrame(this._raf);
         clearTimeout(this._timer);
         this.playing = false;
-        this.pinT = this.playT;
+        if (this.replayT != null) {
+            this.replayT = this.playT;
+        } else {
+            this.pinT = this.playT;
+        }
         this._notify("play");
         this._notify("time");
     }
@@ -241,6 +258,9 @@ export class Session {
         const dt = Math.min(0.1, (now - this._last) / 1000);
         this._last = now;
         this.playT += dt * this.speed;
+        if (this.replayT != null) {
+            this.replayT = this.playT;
+        }
         if (this.playT >= this.ds.t1) {
             this.playT = this.ds.t1;
             this.stopPlay();
@@ -266,6 +286,7 @@ export class Session {
 
     step(dir, big) {
         this.stopPlay();
+        this.replayT = null;
         const ds = this.ds;
         const t = this.pinT ?? this.hoverT ?? this.visibleRange()[0];
         if (big) {
@@ -279,6 +300,7 @@ export class Session {
 
     unpin() {
         this.stopPlay();
+        this.replayT = null;
         this.pinT = null;
         this._notify("time");
     }

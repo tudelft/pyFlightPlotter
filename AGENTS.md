@@ -33,7 +33,8 @@ Facts about this repo that aren't obvious from the code. User-facing usage is in
   realms. `Session.detach()` copies a closing window's tab back into the opener's realm, and keeps tab object identity,
   which other pop-outs compare against. Keep that in mind before caching anything a pop-out created.
 - Layout files are versioned (`LAYOUT_VERSION` in `layout.js`, mirrored in `web/__init__.py`). `parseLayout()` must keep
-  reading every older version. Bump the version when the format changes incompatibly.
+  reading every older version. Bump the version when the format changes incompatibly. Tab files (`.tab.json`,
+  `format: "flightplotter-tab"`) share that version and the panel checks, so a panel format change affects both.
 - Performance matters, because logs reach about 10^6 samples × 300 columns:
   - Store columns as `Float32Array`; only time is `Float64Array`.
   - Coalesce redraws to one per animation frame.

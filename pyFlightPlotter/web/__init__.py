@@ -19,8 +19,9 @@ layout; this module serves them, with the page, from a local HTTP server
     wp.show()
 
 Panels go into tabs: add_tab("Name") starts a new one, which later add_panel calls fill. Instead of add_panel /
-set_viewport, a layout exported from the page ("Layout ⤓") can be loaded with wp.set_layout("layout.json");
-wp.layout() returns the current one in the same format.
+set_viewport, a layout exported from the page ("Layout" button) can be loaded with wp.set_layout("layout.json");
+wp.layout() returns the current one in the same format. A single tab saved from the page (download button on the
+tab, a .tab.json file) is added with wp.add_tab_file("x.tab.json"); wp.tab_layout("Name") returns one.
 
 Column references anywhere (panels, viewport) are a column name, a
 (name, scale) tuple, or an array (registered as a new signal).
@@ -42,7 +43,24 @@ logger = logging.getLogger(__name__)
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 TIME = "__time__"
 LAYOUT_FORMAT = "flightplotter-layout"  # as layout.js
-LAYOUT_VERSION = 2
+TAB_FORMAT = "flightplotter-tab"
+LAYOUT_VERSION = 2  # of both formats
+
+
+def _load_json(x):
+    """a dict, or the path of a JSON file"""
+    if isinstance(x, (str, os.PathLike)):
+        with open(x, encoding="utf-8") as f:
+            return json.load(f)
+    return x
+
+
+def _check_version(x):
+    version = x.get("version", LAYOUT_VERSION)
+    if not isinstance(version, (int, float)) or isinstance(version, bool):
+        raise ValueError("the layout's version must be a number")
+    if version > LAYOUT_VERSION:
+        raise ValueError(f"layout version {version} is newer than this pyFlightPlotter reads")
 
 
 def _jsonable(v):
@@ -242,31 +260,65 @@ class WebPlotter:
         return _jsonable({"format": LAYOUT_FORMAT, "version": LAYOUT_VERSION,
                           "tabs": self.tabs, "viewport": self.viewport})
 
+    def tab_layout(self, tab=-1):
+        """one tab, by index or name, in the page's tab file format (a .tab.json file)"""
+        if isinstance(tab, str):
+            found = [t for t in self.tabs if t["name"] == tab]
+            if not found:
+                raise KeyError(f"no tab named {tab!r}")
+            t = found[0]
+        else:
+            t = self.tabs[tab]
+        return _jsonable({"format": TAB_FORMAT, "version": LAYOUT_VERSION, **t})
+
+    def add_tab_file(self, tab):
+        """Append the tab of a tab file (dict or path of a .tab.json saved from the page), or all
+        tabs of a layout file. The viewport stays."""
+        tab = _load_json(tab)
+        if isinstance(tab, dict) and tab.get("format") == TAB_FORMAT:
+            _check_version(tab)
+            if not isinstance(tab.get("panels"), list):
+                raise ValueError("a tab file has a 'panels' list")
+            new = [{"name": tab.get("name") or "Tab", "view": bool(tab.get("view", False)), "panels": tab["panels"]}]
+        else:
+            new = self._parse_tabs(tab)
+        if len(self.tabs) == 1 and not self.tabs[0]["panels"]:
+            self.tabs = []  # replace the empty default tab, as add_tab does
+        names = {t["name"] for t in self.tabs}
+        for t in new:
+            name, n = t["name"], 2
+            while name in names:
+                name, n = f"{t['name']} ({n})", n + 1
+            names.add(name)
+            self.tabs.append({**t, "name": name, "panels": list(t["panels"])})
+        return self
+
     def set_layout(self, layout):
         """Replace the tabs, and the viewport if the layout has a "viewport" key, with a layout
         dict or the path of a JSON file exported from the page. The page checks the layout in
         detail; column references not among the signals are skipped there."""
-        if isinstance(layout, (str, os.PathLike)):
-            with open(layout, encoding="utf-8") as f:
-                layout = json.load(f)
+        layout = _load_json(layout)
+        if isinstance(layout, dict) and layout.get("format") == TAB_FORMAT:
+            raise ValueError("this is a tab file; add it with add_tab_file()")
+        self.tabs = self._parse_tabs(layout)
+        if "viewport" in layout:
+            self.viewport = layout["viewport"]
+        return self
+
+    @staticmethod
+    def _parse_tabs(layout):
+        """layout file dict -> list of tabs"""
         if isinstance(layout, dict) and "tabs" not in layout and isinstance(layout.get("panels"), list):
             layout = {**layout, "tabs": [{"name": "Plots", "view": True, "panels": layout["panels"]}]}  # version 1
         if not isinstance(layout, dict) or not isinstance(layout.get("tabs"), list) or not layout["tabs"]:
             raise ValueError("a layout is a dict with a non-empty 'tabs' list")
         if layout.get("format", LAYOUT_FORMAT) != LAYOUT_FORMAT:
             raise ValueError(f"not a {LAYOUT_FORMAT} file")
-        version = layout.get("version", LAYOUT_VERSION)
-        if not isinstance(version, (int, float)) or isinstance(version, bool):
-            raise ValueError("the layout's version must be a number")
-        if version > LAYOUT_VERSION:
-            raise ValueError(f"layout version {version} is newer than this pyFlightPlotter reads")
+        _check_version(layout)
         if not all(isinstance(t, dict) for t in layout["tabs"]):
             raise ValueError("each tab of a layout is a dict")
-        self.tabs = [{"name": t.get("name") or f"Tab {i + 1}", "view": t.get("view", i == 0),
-                      "panels": list(t.get("panels", []))} for i, t in enumerate(layout["tabs"])]
-        if "viewport" in layout:
-            self.viewport = layout["viewport"]
-        return self
+        return [{"name": t.get("name") or f"Tab {i + 1}", "view": t.get("view", i == 0),
+                 "panels": list(t.get("panels", []))} for i, t in enumerate(layout["tabs"])]
 
     # ------------------------------------------------------------ serialization
     def to_bytes(self):

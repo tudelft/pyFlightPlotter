@@ -144,7 +144,10 @@ supported inputs.
 The same plots in the browser, drawn with [uPlot](https://github.com/leeoniya/uPlot) and three.js: fast enough
 for long, high-rate logs, with a synchronized cursor and live values, zoom and pan, playback, a PSD of the visible
 window per panel, PNG export, and a 3D view. Python supplies the signals, panels and 3D view; `show()` serves them
-from a local server (127.0.0.1) and opens the browser.
+from a local server (127.0.0.1) and opens the browser. The **?** button lists the mouse and keyboard controls. One of
+them is <kbd>Shift</kbd>+<kbd>Space</kbd> (or <kbd>Ctrl</kbd>+<kbd>Space</kbd>), which replays from the pinned time: the pin
+stays put while a dashed line plays. <kbd>Space</kbd> stops it, leaving the dashed line where it stopped, and plays again
+from the pin, so one section can be played again and again, until you pin another time or press <kbd>Esc</kbd>.
 
 ```python
 from pyFlightPlotter import Tailsitter
@@ -193,7 +196,10 @@ The data goes in once; the panels and the 3D view can change afterwards. With `e
 - **⧉** opens a tab in its own window, which follows the main window's cursor, zoom and playback and returns
   to the tab bar when closed. This needs a `popoutUrl`: a page that loads the library and calls `attachPopout()`
   (the page served from Python does this itself);
-- export the layout as JSON, import one, or go back to the initial layout (**Layout ⤓ / ⤒ / ↺**).
+- export the layout as JSON, import one, or go back to the initial layout (**Layout** with its download, upload and ↺ buttons);
+- save a single tab as a `.tab.json` file (the download button on the active tab) and add tabs from such files (the upload button next
+  to **+**, several files at once; a whole layout file adds all its tabs). Tab files leave out the 3D view, which
+  belongs to the layout, so a tab can move between setups with different crafts.
 
 The layout file holds no data, and column references that a log lacks are skipped, so one layout works across logs:
 
@@ -210,6 +216,16 @@ Version 1 files (`{ "panels": [...], "viewport": ... }`) still load, as one tab.
 layout, and `onLayoutChange(layout)` to persist the user's. In Python, `wp.add_tab("Name", view=False)` starts a tab
 for the following `add_panel` calls, and `wp.set_layout("layout.json")` / `wp.layout()` read and write the same
 format. A layout without a `"viewport"` key keeps the current 3D view; `"viewport": null` removes it.
+
+A tab file is one entry of `tabs` with its own header:
+
+```json
+{ "format": "flightplotter-tab", "version": 2, "name": "Attitude", "view": true, "panels": [ ... ] }
+```
+
+From code: `tabToJSON(tab)` / `parseTab(x)`, `fp.exportTab(tab)` and `fp.addTabs(tabs)` (names already taken get a
+`(2)` suffix). Importing a tab file with the layout's upload button adds it rather than replacing the layout. In Python,
+`wp.tab_layout("Name")` returns one tab in this format and `wp.add_tab_file("x.tab.json")` appends it.
 
 It needs `uplot` and `three` resolvable by the bundler; the page served from Python uses the copies in
 `pyFlightPlotter/web/static/vendor/` through an import map.

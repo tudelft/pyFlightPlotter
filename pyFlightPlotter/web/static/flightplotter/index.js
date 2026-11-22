@@ -4,7 +4,7 @@
 export { FlightPlotter, attachPopout } from "./plotter.js";
 export { Session } from "./session.js";
 export { Dataset } from "./dataset.js";
-export { LAYOUT_FORMAT, LAYOUT_VERSION, layoutToJSON, parseLayout } from "./layout.js";
+export { LAYOUT_FORMAT, TAB_FORMAT, LAYOUT_VERSION, layoutToJSON, tabToJSON, parseLayout, parseTab, parseLayoutOrTab } from "./layout.js";
 export { Craft3D, quadrotor, tailsitter, multirotor, noseArrow } from "./crafts.js";
 export { COLORS } from "./plots.js";
 export { welch } from "./psd.js";

@@ -14,6 +14,8 @@
 //     tabs: [{ name, view: bool, panels: [panel spec, ...] }],   view: show the 3D view in this tab
 //     viewport: {...} | null }                                     shared by all tabs
 // Version 1 files ({ panels, viewport }) read as one tab.
+// A tab file (<name>.tab.json) holds one tab, without the 3D view, which belongs to the whole layout:
+//   { format: "flightplotter-tab", version: 2, name, view, panels: [panel spec, ...] }
 // Column references that a dataset lacks are skipped, so one layout can serve logs with different signals.
 
 export const STYLE_KEYS = ["light", "solid", "dashed"];
@@ -120,74 +122,73 @@ export function placePanels(panels, ncols = 3) {
 }
 
 export const LAYOUT_FORMAT = "flightplotter-layout";
-export const LAYOUT_VERSION = 2;
+export const TAB_FORMAT = "flightplotter-tab";
+export const LAYOUT_VERSION = 2; // of both file formats
+
+const stripTab = (t) => ({
+    name: t.name,
+    view: !!t.view,
+    panels: t.panels.map((p) => {
+        const { src, ...rest } = p; // eslint-disable-line no-unused-vars
+        return rest;
+    }),
+});
 
 /** tabs + viewport as a layout file object; plain JSON, so Craft3D becomes its geometry */
 export function layoutToJSON(tabs, viewport) {
-    const strip = (p) => {
-        const { src, ...rest } = p; // eslint-disable-line no-unused-vars
-        return rest;
-    };
     return JSON.parse(
         JSON.stringify({
             format: LAYOUT_FORMAT,
             version: LAYOUT_VERSION,
-            tabs: tabs.map((t) => ({ name: t.name, view: !!t.view, panels: t.panels.map(strip) })),
+            tabs: tabs.map(stripTab),
             viewport: viewport ?? null,
         }),
     );
 }
 
+/** one tab as a tab file object */
+export function tabToJSON(tab) {
+    return JSON.parse(JSON.stringify({ format: TAB_FORMAT, version: LAYOUT_VERSION, ...stripTab(tab) }));
+}
+
 const VIEW_VECTORS = ["att", "attSet", "attMeas", "pos", "posSet", "posMeas", "vel", "velSet", "velMeas", "acc", "accSet", "accMeas"];
 const VIEW_ACTUATORS = ["rotor", "rotorSet", "surface", "surfaceSet"];
 
-/**
- * Check a layout file object and return a copy: {tabs, viewport}, where viewport is undefined if the
- * file has no "viewport" key (keep the current one) and null if it is null (no 3D view).
- * Throws an Error that names the offending entry, e.g. "panels[2].series[0].solid: ...".
- */
-export function parseLayout(x) {
-    const fail = (path, msg) => {
-        throw new Error(`${path}: ${msg}`);
-    };
-    const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-    const optional = (v, ok, path, what) => {
-        if (v !== undefined && v !== null && !ok(v)) {
-            fail(path, `expected ${what}`);
-        }
-    };
-    const isStr = (v) => typeof v === "string";
-    const isNum = (v) => typeof v === "number" && Number.isFinite(v);
-    const isVec3 = (v) => Array.isArray(v) && v.length === 3 && v.every(isNum);
-    const isPolyline = (v) => Array.isArray(v) && v.every(isVec3);
-    const checkRef = (r, path) => {
-        if (r == null || isStr(r) || (Array.isArray(r) && r.length === 2 && isStr(r[0]) && (r[1] == null || isNum(r[1])))) {
-            return;
-        }
-        fail(path, 'expected a column name, ["name", scale] or null');
-    };
-
-    if (!isObj(x)) {
-        fail("layout", "expected an object");
+const fail = (path, msg) => {
+    throw new Error(`${path}: ${msg}`);
+};
+const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const optional = (v, ok, path, what) => {
+    if (v !== undefined && v !== null && !ok(v)) {
+        fail(path, `expected ${what}`);
     }
-    if (x.format !== undefined && x.format !== LAYOUT_FORMAT) {
-        fail("format", `expected "${LAYOUT_FORMAT}"`);
+};
+const isStr = (v) => typeof v === "string";
+const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+const isVec3 = (v) => Array.isArray(v) && v.length === 3 && v.every(isNum);
+const isPolyline = (v) => Array.isArray(v) && v.every(isVec3);
+const checkRef = (r, path) => {
+    if (r == null || isStr(r) || (Array.isArray(r) && r.length === 2 && isStr(r[0]) && (r[1] == null || isNum(r[1])))) {
+        return;
+    }
+    fail(path, 'expected a column name, ["name", scale] or null');
+};
+
+function checkHeader(x, format) {
+    if (!isObj(x)) {
+        fail(format === TAB_FORMAT ? "tab" : "layout", "expected an object");
+    }
+    if (x.format !== undefined && x.format !== format) {
+        const hint = { [LAYOUT_FORMAT]: "a whole layout", [TAB_FORMAT]: "a single tab" }[x.format];
+        fail("format", `expected "${format}"${hint ? `, but this file holds ${hint}` : ""}`);
     }
     if (x.version !== undefined && !(isNum(x.version) && x.version <= LAYOUT_VERSION)) {
         fail("version", `this flightplotter reads layout version ${LAYOUT_VERSION} or older`);
     }
-    let tabs;
-    if (x.tabs !== undefined) {
-        if (!Array.isArray(x.tabs) || !x.tabs.length) {
-            fail("tabs", "expected a non-empty list of tabs");
-        }
-        tabs = x.tabs;
-    } else if (Array.isArray(x.panels)) {
-        tabs = [{ name: "Plots", view: true, panels: x.panels }];
-    } else {
-        fail("tabs", "expected a list of tabs (or, in version 1 files, panels)");
-    }
-    const checkPanels = (panels, base) => panels.forEach((p, i) => {
+}
+
+function checkPanels(panels, base) {
+    panels.forEach((p, i) => {
         const at = `${base}[${i}]`;
         if (!isObj(p)) {
             fail(at, "expected an object");
@@ -217,18 +218,55 @@ export function parseLayout(x) {
             STYLE_KEYS.forEach((k) => checkRef(s[k], `${sat}.${k}`));
         });
     });
-    tabs.forEach((t, ti) => {
-        const at = x.tabs ? `tabs[${ti}]` : "layout";
-        if (!isObj(t)) {
-            fail(at, "expected an object");
+}
+
+/** check a tab object; at: its path in error messages, panelsAt: that of its panels */
+function checkTab(t, at, panelsAt = `${at}.panels`) {
+    if (!isObj(t)) {
+        fail(at, "expected an object");
+    }
+    optional(t.name, isStr, `${at}.name`, "a string");
+    optional(t.view, (v) => typeof v === "boolean", `${at}.view`, "true or false");
+    if (!Array.isArray(t.panels)) {
+        fail(panelsAt, "expected a list of panels");
+    }
+    checkPanels(t.panels, panelsAt);
+}
+
+/**
+ * Check a tab file object (or one tab of a layout) and return a copy: {name, view, panels}.
+ * A missing name becomes fallbackName, a missing view false. Throws like parseLayout().
+ */
+export function parseTab(x, fallbackName = "Tab") {
+    checkHeader(x, TAB_FORMAT);
+    checkTab(x, "tab", "panels");
+    return { name: x.name?.trim() || fallbackName, view: x.view ?? false, panels: structuredClone(x.panels) };
+}
+
+/** file object of either kind -> {tabs, viewport?}: a tab file reads as a layout with that one tab and no viewport key */
+export function parseLayoutOrTab(x) {
+    return isObj(x) && x.format === TAB_FORMAT ? { tabs: [parseTab(x)], viewport: undefined } : parseLayout(x);
+}
+
+/**
+ * Check a layout file object and return a copy: {tabs, viewport}, where viewport is undefined if the
+ * file has no "viewport" key (keep the current one) and null if it is null (no 3D view).
+ * Throws an Error that names the offending entry, e.g. "panels[2].series[0].solid: ...".
+ */
+export function parseLayout(x) {
+    checkHeader(x, LAYOUT_FORMAT);
+    let tabs;
+    if (x.tabs !== undefined) {
+        if (!Array.isArray(x.tabs) || !x.tabs.length) {
+            fail("tabs", "expected a non-empty list of tabs");
         }
-        optional(t.name, isStr, `${at}.name`, "a string");
-        optional(t.view, (v) => typeof v === "boolean", `${at}.view`, "true or false");
-        if (!Array.isArray(t.panels)) {
-            fail(`${at}.panels`, "expected a list of panels");
-        }
-        checkPanels(t.panels, x.tabs ? `${at}.panels` : "panels");
-    });
+        tabs = x.tabs;
+    } else if (Array.isArray(x.panels)) {
+        tabs = [{ name: "Plots", view: true, panels: x.panels }];
+    } else {
+        fail("tabs", "expected a list of tabs (or, in version 1 files, panels)");
+    }
+    tabs.forEach((t, ti) => (x.tabs ? checkTab(t, `tabs[${ti}]`) : checkTab(t, "layout", "panels")));
 
     const v = x.viewport;
     if (v !== undefined && v !== null) {
