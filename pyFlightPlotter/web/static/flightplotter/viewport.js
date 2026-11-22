@@ -9,9 +9,11 @@
 //     rotor, rotorSet: per rotor a thrust ref (0..1), or {thrust, tilt1, tilt2} (tilts in rad)
 //     surface, surfaceSet: per surface a deflection ref (rad)
 //     interpolation: "previous" | "linear",
+//     signals: label of the host's signal choice the rotor signals came from (FlightPlotter's signals option)
 //   }
-// The estimate (att) is drawn solid with rotor states, the setpoint (attSet)
-// dashed with rotor commands, the measurement (attMeas) dashed without rotors.
+// The estimate (att) is drawn solid, the setpoint (attSet) and the measurement (attMeas) dashed. Rotor thrust shows
+// on the estimate as filled arcs that grow with thrust from the nose side, clockwise seen from above: the state
+// (rotor) fills the rotor disc, the command (rotorSet) a ring around it. Rotor tilts show on the estimate (rotor) and the setpoint (rotorSet).
 // Renders on demand only, so an idle view costs nothing.
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -26,6 +28,10 @@ const DEG = Math.PI / 180;
 const TRAIL_S = 2.0;
 // line width [px] of the dashed setpoint / measurement ghosts and vectors
 const DASHED_WIDTH = 1;
+// thrust arcs: steps per full circle, opacity, and the setpoint ring's width as a fraction of the rotor radius
+const ARC_LEVELS = 96;
+const ARC_OPACITY = 0.4;
+const RING_WIDTH = 0.2;
 
 export class Viewport {
     /**
@@ -121,11 +127,11 @@ export class Viewport {
         scene.add(new THREE.AxesHelper(0.5 * this.craftScale));
 
         // -------------------------------------------------- craft ghosts
-        const [C0, C1, C2, C3, C4, C5, C6] = COLORS;
+        const [C0, C1, C2, C3, C4, C5] = COLORS;
         this.ghosts = {
-            est: this.d.att && this._craft({ color: C0, width: 2.5, rotorColor: C5, labels: true }),
-            set: this.d.attSet && this._craft({ color: C1, width: DASHED_WIDTH, dashed: true, rotorColor: C6 }),
-            meas: this.d.attMeas && this._craft({ color: C2, width: DASHED_WIDTH, dashed: true, rotors: false }),
+            est: this.d.att && this._craft({ color: C0, width: 2.5, arcs: [C0, C1], labels: true }),
+            set: this.d.attSet && this._craft({ color: C1, width: DASHED_WIDTH, dashed: true }),
+            meas: this.d.attMeas && this._craft({ color: C2, width: DASHED_WIDTH, dashed: true }),
         };
         for (const g of Object.values(this.ghosts)) {
             if (g) {
@@ -196,7 +202,92 @@ export class Viewport {
         this.setTime(ds.t0);
     }
 
+    /**
+     * Draw a top-down view of the craft in its body frame (nose up) over the area of el, which lies on top of the
+     * view: outline, rotor numbers and thrust arcs, whatever setVisible() hides in the main view except the numbers.
+     * @returns {boolean} whether there is one, i.e. the craft has rotors
+     */
+    setInset(el) {
+        const geo = this.geometry;
+        if (!(geo.rotors || []).length) {
+            return false;
+        }
+        let half = 1e-3;
+        for (const pl of geo.body || []) {
+            for (const p of pl) {
+                half = Math.max(half, Math.abs(p[0]), Math.abs(p[1]));
+            }
+        }
+        for (const r of geo.rotors) {
+            const reach = r.R * (1 + RING_WIDTH);
+            half = Math.max(half, Math.abs(r.xyz[0]) + reach, Math.abs(r.xyz[1]) + reach);
+        }
+        const n0 = this.materials.length;
+        const craft = this._craft({ color: COLORS[0], width: 2, arcs: [COLORS[0], COLORS[1]], labels: true });
+        // own line materials: their resolution is the inset's size, not the canvas's
+        const materials = this.materials.splice(n0);
+        const scene = new THREE.Scene();
+        scene.add(craft.root);
+        // looking down the body z axis (FRD: z down), x up and y right on screen; the frustum is set per size
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 100 * half);
+        camera.position.set(0, 0, -10 * half);
+        camera.up.set(1, 0, 0);
+        camera.lookAt(0, 0, 0);
+        this.inset = { el, craft, materials, scene, camera, half, px: 0 };
+        this._insetRo = new ResizeObserver(() => this.requestRender());
+        this._insetRo.observe(el);
+        this.setTime(this.time);
+        return true;
+    }
+
+    _renderInset() {
+        const I = this.inset;
+        const c = this.renderer.domElement.getBoundingClientRect();
+        const r = I.el.getBoundingClientRect();
+        const w = Math.min(r.width, c.right - r.left);
+        const h = Math.min(r.height, c.bottom - r.top);
+        if (I.el.offsetParent === null || w < 10 || h < 10) {
+            return;
+        }
+        for (const m of I.materials) {
+            m.resolution.set(w, h);
+        }
+        const s = Math.min(w, h);
+        if (s !== I.px) {
+            this._fitInset(s);
+        }
+        const x = r.left - c.left + (w - s) / 2;
+        const y = c.height - (r.top - c.top) - (h + s) / 2; // from the bottom
+        const R = this.renderer;
+        R.setViewport(x, y, s, s);
+        R.setScissor(r.left - c.left, c.height - (r.top - c.top) - h, w, h);
+        R.setScissorTest(true);
+        R.setClearColor(this.scene.background);
+        R.clear();
+        R.render(I.scene, I.camera);
+        R.setScissorTest(false);
+        R.setViewport(0, 0, c.width, c.height);
+    }
+
+    /** frame the inset craft for s pixels, with rotor numbers of a fixed pixel height outside the setpoint rings */
+    _fitInset(s) {
+        const I = this.inset;
+        I.px = s;
+        const LABEL_PX = 26;
+        // the numbers take LABEL_PX of the s pixels across 2 * half, which includes them: solve for half
+        const half = I.half / Math.max(0.3, 1 - (2.2 * LABEL_PX) / s);
+        const lh = (LABEL_PX * 2 * half) / s;
+        this.geometry.rotors.forEach((r, k) => {
+            const label = I.craft.rotors[k].label;
+            label.scale.set(2 * lh, lh, 1);
+            label.position.setLength(r.R * (1 + RING_WIDTH) + 0.55 * lh);
+        });
+        Object.assign(I.camera, { left: -half, right: half, top: half, bottom: -half });
+        I.camera.updateProjectionMatrix();
+    }
+
     destroy() {
+        this._insetRo?.disconnect();
         this._ro.disconnect();
         cancelAnimationFrame(this._raf);
         this.controls.dispose();
@@ -233,7 +324,25 @@ export class Viewport {
         return l;
     }
 
-    _craft({ color, width, dashed = false, rotorColor, rotors = true, labels = false }) {
+    /** unit-radius thrust arc geometry, from angle 0 counter-clockwise: a pie ("pie") or the setpoint ring ("ring") */
+    _arcGeometry(kind, level) {
+        this._arcGeo ??= { pie: [], ring: [] };
+        const cache = this._arcGeo[kind];
+        if (!cache[level]) {
+            const theta = (2 * Math.PI * level) / ARC_LEVELS;
+            const segs = Math.max(1, Math.ceil((64 * level) / ARC_LEVELS));
+            cache[level] =
+                kind === "pie"
+                    ? new THREE.CircleGeometry(1, segs, 0, theta)
+                    : new THREE.RingGeometry(1, 1 + RING_WIDTH, segs, 1, 0, theta);
+        }
+        return cache[level];
+    }
+
+    /**
+     * arcs: [state color, command color] to draw thrust arcs with (the estimate only)
+     */
+    _craft({ color, width, dashed = false, arcs = null, labels = false }) {
         const geo = this.geometry;
         const root = new THREE.Group();
         const mat = this._mat(color, width, dashed);
@@ -276,27 +385,44 @@ export class Viewport {
                     ], mat));
                 }
             }
+            let label = null;
             if (labels) {
                 // outside the disc, away from the craft's centre
                 const out = new THREE.Vector3(...r.xyz).projectOnPlane(axis);
                 if (out.lengthSq() < 1e-9) {
                     out.copy(e1);
                 }
-                const label = this._label(r.label ?? String(i + 1), color, r.R);
+                label = this._label(r.label ?? String(i + 1), color, r.R);
                 label.position.copy(out.normalize().multiplyScalar(1.6 * r.R));
                 body.add(label);
             }
-            const tip = axis.clone().multiplyScalar(2 * r.R).toArray();
-            let thrust = null;
-            if (rotors) {
-                body.add(this._line([[0, 0, 0], tip], this._mat(rotorColor, 1, false, 0.3)));
-                thrust = new THREE.Group();
-                thrust.add(this._line([[0, 0, 0], tip], this._mat(rotorColor, 3.5)));
-                body.add(thrust);
+            let arc = null;
+            if (arcs) {
+                // in the rotor plane, starting towards the nose, the same way round for every rotor: clockwise
+                // seen from where the axis points (the y mirror turns the geometry's counter-clockwise around)
+                const x = new THREE.Vector3(1, 0, 0).projectOnPlane(axis);
+                if (x.lengthSq() < 1e-9) {
+                    x.copy(e1);
+                }
+                x.normalize();
+                const disc = new THREE.Group();
+                disc.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, axis.clone().cross(x), axis));
+                disc.scale.set(r.R, -r.R, r.R);
+                const mesh = (c) => {
+                    const m = new THREE.Mesh(
+                        this._arcGeometry("pie", 0),
+                        new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: ARC_OPACITY, side: THREE.DoubleSide, depthWrite: false }),
+                    );
+                    m.visible = false;
+                    disc.add(m);
+                    return m;
+                };
+                arc = { state: mesh(arcs[0]), command: mesh(arcs[1]) };
+                body.add(disc);
             }
             root.add(pivot);
             rot.push({
-                pivot, thrust,
+                pivot, arc, label,
                 a1: new THREE.Vector3(...(r.tilt_axis || [1, 0, 0])).normalize(),
                 a2: new THREE.Vector3(...(r.tilt2_axis || [0, 1, 0])).normalize(),
             });
@@ -390,6 +516,13 @@ export class Viewport {
         const pos = d.pos ? v3(d.pos) : new THREE.Vector3();
         const posMeas = d.posMeas ? v3(d.posMeas) : pos;
 
+        const setArc = (m, kind, c, on = true) => {
+            const level = c?.[0] ? Math.round(Math.min(1, Math.max(0, val(c[0]))) * ARC_LEVELS) : 0;
+            m.visible = on && level > 0;
+            if (m.visible) {
+                m.geometry = this._arcGeometry(kind, level);
+            }
+        };
         const setRotors = (g, src) => {
             if (!src) {
                 return;
@@ -398,13 +531,6 @@ export class Viewport {
                 const c = src[k];
                 if (!c) {
                     return;
-                }
-                if (r.thrust) {
-                    const s = Math.max(0, val(c[0]));
-                    r.thrust.visible = s > 1e-3;
-                    if (r.thrust.visible) {
-                        r.thrust.scale.setScalar(s);
-                    }
                 }
                 if (c[1] || c[2]) {
                     const q1 = new THREE.Quaternion().setFromAxisAngle(r.a1, val(c[1]));
@@ -420,6 +546,19 @@ export class Viewport {
             G.est.root.position.copy(pos);
             q4(d.att, G.est.root.quaternion);
             setRotors(G.est, d.rotor);
+            G.est.rotors.forEach((r, k) => {
+                setArc(r.arc.state, "pie", d.rotor?.[k]);
+                setArc(r.arc.command, "ring", d.rotorSet?.[k], !this.commandArcsHidden);
+            });
+        }
+        if (this.inset) {
+            const g = this.inset.craft;
+            setRotors(g, d.rotor);
+            setSurfaces(g, d.surface);
+            g.rotors.forEach((r, k) => {
+                setArc(r.arc.state, "pie", d.rotor?.[k]);
+                setArc(r.arc.command, "ring", d.rotorSet?.[k]);
+            });
             setSurfaces(G.est, d.surface);
         }
         if (G.set) {
@@ -508,6 +647,10 @@ export class Viewport {
         if (g) {
             g.root.visible = on;
         }
+        if (key === "set") {
+            // the command arcs belong to the setpoint, though drawn on the estimate
+            this.commandArcsHidden = !on;
+        }
         const extra = { est: ["pos", "vel", "acc"], set: ["posSet", "velSet", "accSet"], meas: ["posMeas", "velMeas", "accMeas"] }[key] || [];
         for (const k of extra) {
             if (this.markers[k]) {
@@ -523,11 +666,13 @@ export class Viewport {
             }
         }
         if (key === "labels") {
-            this.ghosts.est?.root.traverse((o) => {
-                if (o.userData.rotorLabel) {
-                    o.visible = on;
-                }
-            });
+            for (const g of [this.ghosts.est, this.inset?.craft]) {
+                g?.root.traverse((o) => {
+                    if (o.userData.rotorLabel) {
+                        o.visible = on;
+                    }
+                });
+            }
         }
         this.setTime(this.time);
     }
@@ -600,6 +745,9 @@ export class Viewport {
             this.renderer.clear();
             this.renderer.render(this.scene, this.camera);
             this.viewHelper.render(this.renderer);
+            if (this.inset) {
+                this._renderInset();
+            }
         });
     }
 }

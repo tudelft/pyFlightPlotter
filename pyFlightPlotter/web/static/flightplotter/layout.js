@@ -314,6 +314,7 @@ export function parseLayout(x) {
             });
         }
         optional(v.interpolation, (y) => y === "previous" || y === "linear", "viewport.interpolation", '"previous" or "linear"');
+        optional(v.signals, isStr, "viewport.signals", "the label of a signal choice");
     }
     return {
         tabs: tabs.map((t, i) => ({ name: t.name?.trim() || `Tab ${i + 1}`, view: t.view ?? i === 0, panels: structuredClone(t.panels) })),

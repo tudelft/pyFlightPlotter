@@ -71,6 +71,10 @@ export class FlightPlotter {
      * @param {{label: string, viewport: object}[]} [o.crafts]  choices for the 3D view's craft selector; each
      *                                 viewport is merged into the viewport spec (typically craft, rotor, rotorSet,
      *                                 surface, surfaceSet), and the craft's name becomes the label
+     * @param {{label: string, viewport: object}[]} [o.signals]  choices for the 3D view's signal selector, e.g.
+     *                                 which signals drive the rotors; each viewport is merged into the viewport spec
+     *                                 (typically rotor, rotorSet) and outlasts a change of craft. The spec's
+     *                                 "signals" key names the chosen one.
      * @param {string} [o.popoutUrl]   page that shows a tab in its own window: it loads this library and calls
      *                                 attachPopout(). Without it, tabs can't be popped out.
      * @param {Session} [o.session]    (attachPopout) join the session of a view in another window ...
@@ -98,6 +102,7 @@ export class FlightPlotter {
                 initialLayout,
                 onLayoutChange: o.onLayoutChange,
                 crafts: (o.crafts || []).map((c) => ({ label: c.label, viewport: JSON.parse(JSON.stringify(c.viewport)) })),
+                signals: (o.signals || []).map((c) => ({ label: c.label, viewport: JSON.parse(JSON.stringify(c.viewport)) })),
                 editable: o.editable ?? true,
                 layoutName: o.layoutName || "layout",
                 popoutUrl: o.popoutUrl,
@@ -167,6 +172,10 @@ export class FlightPlotter {
 
     get crafts() {
         return this.session.crafts;
+    }
+
+    get signals() {
+        return this.session.signals;
     }
 
     get initialLayout() {
@@ -309,9 +318,12 @@ export class FlightPlotter {
             }),
         );
         this.$craftSel = h("select", { title: "Craft drawn in the 3D view", onchange: (e) => this._chooseCraft(+e.target.value) });
+        this.$signalSel = h("select", { title: "Signals driving the rotors", onchange: (e) => this._chooseSignals(+e.target.value) });
         this.$rotorsBtn = btn("Rotors…", "Spin direction and signals per rotor", "", () => this._editRotors());
-        this.$viewbar2 = h("div", { class: "fp-viewbar fp-viewbar2" }, this.$craftSel, this.$rotorsBtn);
-        this.$view.append(h("div", { class: "fp-view3d" }), this.$viewbar, this.$viewbar2);
+        this.$viewbar2 = h("div", { class: "fp-viewbar fp-viewbar2" }, this.$craftSel, this.$signalSel, this.$rotorsBtn);
+        // top-down view of the craft, drawn by the Viewport over this box
+        this.$inset = h("div", { class: "fp-inset", hidden: true });
+        this.$view.append(h("div", { class: "fp-view3d" }), h("div", { class: "fp-viewtop" }, this.$viewbar, this.$inset), this.$viewbar2);
         main.append(this.$split, this.$view);
         this._bindSplitter();
 
@@ -464,6 +476,7 @@ export class FlightPlotter {
                 return;
             }
             this.view = new Viewport(el, this.ds, this.viewportSpec, { bg: this.theme.bg, grid: this.theme.gridLines });
+            this.$inset.hidden = !this.view.setInset(this.$inset);
             for (const b of this.$viewbar.querySelectorAll("[data-k]")) {
                 b.hidden = !this.view.has(b.dataset.k);
             }
@@ -802,8 +815,16 @@ export class FlightPlotter {
             ...this.crafts.map((c, i) => h("option", { value: i, selected: i === idx }, c.label)),
         );
         sel.hidden = this.crafts.length === 0;
+        const ssel = this.$signalSel;
+        const sname = this.viewportSpec?.signals;
+        const sidx = this.signals.findIndex((c) => c.label === sname);
+        ssel.replaceChildren(
+            ...(sidx < 0 ? [h("option", { value: -1, selected: true }, "Custom signals")] : []),
+            ...this.signals.map((c, i) => h("option", { value: i, selected: i === sidx }, c.label)),
+        );
+        ssel.hidden = this.signals.length === 0 || !(this.viewportSpec?.craft?.rotors || []).length;
         this.$rotorsBtn.hidden = !this.editable || !(this.viewportSpec?.craft?.rotors || []).length;
-        this.$viewbar2.hidden = sel.hidden && this.$rotorsBtn.hidden;
+        this.$viewbar2.hidden = sel.hidden && ssel.hidden && this.$rotorsBtn.hidden;
     }
 
     _chooseCraft(i) {
@@ -812,7 +833,20 @@ export class FlightPlotter {
             return;
         }
         const v = structuredClone(c.viewport);
-        this.viewportSpec = { ...this.viewportSpec, ...v, craft: { ...v.craft, name: c.label } };
+        // the chosen signals stay, also if the craft choice brings its own
+        const s = this.signals.find((x) => x.label === this.viewportSpec?.signals);
+        this.viewportSpec = { ...this.viewportSpec, ...v, ...(s ? structuredClone(s.viewport) : {}), craft: { ...v.craft, name: c.label } };
+        this._syncCraftSel();
+        this._buildView();
+        this._layoutChanged();
+    }
+
+    _chooseSignals(i) {
+        const c = this.signals[i];
+        if (!c) {
+            return;
+        }
+        this.viewportSpec = { ...this.viewportSpec, ...structuredClone(c.viewport), signals: c.label };
         this._syncCraftSel();
         this._buildView();
         this._layoutChanged();
@@ -855,12 +889,16 @@ export class FlightPlotter {
             };
             delete craft.name; // edited, so no longer the chosen preset
             const pad = (a) => Array.from({ length: rotors.length }, (_, i) => a?.[i] ?? null);
-            this.viewportSpec = {
+            const next = {
                 ...spec,
                 craft,
                 rotor: pad(spec.rotor).map((e, i) => withThrust(e, this._parseRef(rows[i].est.value))),
                 rotorSet: pad(spec.rotorSet).map((e, i) => withThrust(e, this._parseRef(rows[i].set.value))),
             };
+            if (JSON.stringify([next.rotor, next.rotorSet]) !== JSON.stringify([pad(spec.rotor), pad(spec.rotorSet)])) {
+                delete next.signals; // edited, so no longer the chosen signal set
+            }
+            this.viewportSpec = next;
             this.$edit.close();
             this._syncCraftSel();
             this._buildView();

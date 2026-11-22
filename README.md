@@ -149,6 +149,10 @@ them is <kbd>Shift</kbd>+<kbd>Space</kbd> (or <kbd>Ctrl</kbd>+<kbd>Space</kbd>),
 stays put while a dashed line plays. <kbd>Space</kbd> stops it, leaving the dashed line where it stopped, and plays again
 from the pin, so one section can be played again and again, until you pin another time or press <kbd>Esc</kbd>.
 
+In the 3D view, rotor thrust shows as filled arcs on the estimated attitude, growing clockwise from the nose side: the
+state (`rotor`) fills the rotor disc in blue, the command (`rotorSet`) fills a ring around it in orange. A top-down
+inset in the corner shows the craft in its body frame with both arcs, whatever the legend hides.
+
 ```python
 from pyFlightPlotter import Tailsitter
 from pyFlightPlotter.web import WebPlotter
@@ -192,7 +196,9 @@ The data goes in once; the panels and the 3D view can change afterwards. With `e
   `"name * scale"`), drag a panel by its header onto another (swap) or an empty cell (move), and remove it;
 - organise panels in **tabs** (+ to add, double-click to rename, × to close). Each tab can show the 3D view or not
   (the **3D** button; on by default in the first tab only);
-- pick the craft in the 3D view (from the host's `crafts` option) and set each rotor's spin and signals (**Rotors…**);
+- pick the craft in the 3D view (from the host's `crafts` option), the signals driving its rotors (from the host's
+  `signals` option, e.g. motor speeds or commands; the choice stays when the craft changes), and set each rotor's
+  spin and signals (**Rotors…**);
 - **⧉** opens a tab in its own window, which follows the main window's cursor, zoom and playback and returns
   to the tab bar when closed. This needs a `popoutUrl`: a page that loads the library and calls `attachPopout()`
   (the page served from Python does this itself);

@@ -10,7 +10,7 @@ export class Session {
     /**
      * @param {import("./dataset.js").Dataset} ds
      * @param {{tabs: object[], viewport: object|null}} layout  parsed (parseLayout)
-     * @param {object} o  {initialLayout, onLayoutChange, crafts, editable, layoutName, popoutUrl}
+     * @param {object} o  {initialLayout, onLayoutChange, crafts, signals, editable, layoutName, popoutUrl}
      */
     constructor(ds, layout, o) {
         this.ds = ds;
@@ -19,6 +19,7 @@ export class Session {
         this.initialLayout = o.initialLayout;
         this.onLayoutChange = o.onLayoutChange || null;
         this.crafts = o.crafts || [];
+        this.signals = o.signals || [];
         this.editable = o.editable;
         this.layoutName = o.layoutName;
         this.popoutUrl = o.popoutUrl || null;
