@@ -1,5 +1,6 @@
 // FlightPlotter: synchronized time-series panels + 3D viewport in one component.
 import { Dataset } from "./dataset.js";
+import { datasetToCsv } from "./csv.js";
 import { Session } from "./session.js";
 import { STYLE_KEYS, TAB_FORMAT, resolvePanels, placePanels, layoutToJSON, tabToJSON, parseLayout, parseLayoutOrTab, refToText, refFromText } from "./layout.js";
 import { PlotGrid } from "./plots.js";
@@ -29,6 +30,7 @@ const HELP = [
     "Click a <b>series</b> to hide it, or a <b>line style</b> in the panel header to hide that style",
     "Panel tools on hover: <b>PSD</b> (Welch spectrum of the visible window), <b>PNG</b> export; when editable, <b>+</b> adds a signal and <b>×</b> removes the panel",
     `<b>Layout</b> (when editable): export the panels and 3D view as JSON (${iconSvg("download")}), import one (${iconSvg("upload")}), or reset to the initial layout (↺)`,
+    "<b>CSV</b> downloads all signals as a table; computed signals are prefixed <code>calc:</code> and explained in the file's comment block",
     `Tabs (when editable): ${iconSvg("download")} on the active tab saves just that tab as a <code>.tab.json</code> file, ${iconSvg("upload")} next to <b>+</b> adds the tabs of such files (or all tabs of a layout file)`,
     "3D view: left drag rotates, right drag pans, wheel zooms; click the axis gizmo to snap the view",
 ];
@@ -75,6 +77,8 @@ export class FlightPlotter {
      *                                 which signals drive the rotors; each viewport is merged into the viewport spec
      *                                 (typically rotor, rotorSet) and outlasts a change of craft. The spec's
      *                                 "signals" key names the chosen one.
+     * @param {object|false} [o.csv]   the CSV export button: false hides it, an object sets {filename, header}
+     *                                 (see exportCsv)
      * @param {string} [o.popoutUrl]   page that shows a tab in its own window: it loads this library and calls
      *                                 attachPopout(). Without it, tabs can't be popped out.
      * @param {Session} [o.session]    (attachPopout) join the session of a view in another window ...
@@ -112,6 +116,7 @@ export class FlightPlotter {
         const S = this.session;
         this.ds = S.ds;
         this.editable = S.editable;
+        this.csvOptions = o.csv;
         this.ncols = o.ncols ?? 3;
         this.activeTab = 0;
         this.follow = false;
@@ -266,6 +271,9 @@ export class FlightPlotter {
             h("span", { class: "fp-slot" }),
             this.editable ? btn("+ Plot", "Add a plot of any signal", "", () => this._pickSignal()) : "",
             this.editable && !this.fixedTab ? layoutMenu : "",
+            !this.fixedTab && o.csv !== false
+                ? btn(["CSV ", icon("download")], "Download all signals as a CSV file (computed signals marked)", "", () => this.exportCsv())
+                : "",
             h("span", { class: "fp-sep" }),
             this.$play,
             this.$speed,
@@ -732,8 +740,22 @@ export class FlightPlotter {
         this._download(tabToJSON(tab), `${this.session.layoutName}-${name}.tab.json`);
     }
 
+    /**
+     * download every signal of the data as CSV (see datasetToCsv: signals the host computed are marked)
+     * @param {object} [o]  defaults to the `csv` option
+     * @param {string} [o.filename]  default: <layoutName>.csv
+     * @param {string[]} [o.header]  lines for the comment block at the top of the file
+     */
+    exportCsv(o = this.csvOptions || {}) {
+        const { filename, ...rest } = o;
+        this._saveBlob(new Blob(datasetToCsv(this.ds, rest), { type: "text/csv" }), filename || `${this.session.layoutName}.csv`);
+    }
+
     _download(obj, filename) {
-        const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+        this._saveBlob(new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" }), filename);
+    }
+
+    _saveBlob(blob, filename) {
         const a = h("a", { href: URL.createObjectURL(blob), download: filename });
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 0);

@@ -8,8 +8,10 @@ export class Dataset {
      * @param {{t: number, name: string, kind?: string}[]} [o.events]  time markers
      * @param {Object<string, string>} [o.descriptions]  per signal, how it came about (e.g. for derived signals);
      *                                                    shown in tooltips and the signal picker
+     * @param {Iterable<string>} [o.derived]  the signals the host computed itself, as opposed to the ones it was
+     *                                        given; the CSV export keeps them apart
      */
-    constructor({ time, columns = {}, events = [], descriptions = {} }) {
+    constructor({ time, columns = {}, events = [], descriptions = {}, derived = [] }) {
         this.t = time instanceof Float64Array ? time : Float64Array.from(time);
         this.n = this.t.length;
         if (this.n < 2) {
@@ -17,6 +19,7 @@ export class Dataset {
         }
         this.cols = new Map();
         this.descriptions = new Map(Object.entries(descriptions));
+        this.derived = new Set(derived);
         const entries = columns instanceof Map ? columns.entries() : Object.entries(columns);
         for (const [name, arr] of entries) {
             this.add(name, arr);

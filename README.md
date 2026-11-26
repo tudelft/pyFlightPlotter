@@ -233,6 +233,15 @@ From code: `tabToJSON(tab)` / `parseTab(x)`, `fp.exportTab(tab)` and `fp.addTabs
 `(2)` suffix). Importing a tab file with the layout's upload button adds it rather than replacing the layout. In Python,
 `wp.tab_layout("Name")` returns one tab in this format and `wp.add_tab_file("x.tab.json")` appends it.
 
+### CSV export
+
+The **CSV** button downloads every signal as a table (`fp.exportCsv()`, or `datasetToCsv(dataset, options)` for the text parts).
+The first column is `time` [s]. Signals the host passes as `data.derived` (the ones it computed itself, as opposed to the ones it
+was given, e.g. body velocity from a logged world velocity) come last and are prefixed `calc:`, so the origin is in the column name.
+A `#` comment block at the top of the file says so, lists each computed column with its `data.descriptions` entry and starts
+with the host's `csv.header` lines. Readers that don't skip `#` lines can use `{ comments: false }`. NaN is an empty cell.
+Options of the constructor's `csv` (`false` hides the button): `{ filename, header, comments, derivedPrefix }`.
+
 It needs `uplot` and `three` resolvable by the bundler; the page served from Python uses the copies in
 `pyFlightPlotter/web/static/vendor/` through an import map.
 
